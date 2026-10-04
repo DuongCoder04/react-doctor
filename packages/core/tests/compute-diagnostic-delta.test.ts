@@ -125,6 +125,24 @@ describe("computeDiagnosticDelta", () => {
     expect(delta.ruleCountMatchCount).toBe(1);
   });
 
+  it("updates candidate ranks after another finding consumes their closest base match", () => {
+    const added = makeDiagnostic({ line: 11, fingerprint: "reformatted" });
+    const delta = computeDiagnosticDelta({
+      headDiagnostics: [
+        makeDiagnostic({ line: 10, fingerprint: "reformatted" }),
+        added,
+        makeDiagnostic({ line: 105, fingerprint: "reformatted" }),
+      ],
+      baseDiagnostics: [
+        makeDiagnostic({ line: 10, fingerprint: "original" }),
+        makeDiagnostic({ line: 100, fingerprint: "original" }),
+      ],
+      readHeadLine: () => null,
+      readBaseLine: () => null,
+    });
+    expect(delta.newDiagnostics).toEqual([added]);
+  });
+
   it("does not move allowance between different rules or files", () => {
     const added = [makeDiagnostic({ rule: "other-rule" }), makeDiagnostic({ filePath: "new.tsx" })];
     const delta = computeDiagnosticDelta({

@@ -148,11 +148,17 @@ export const computeDiagnosticDelta = (input: ComputeDiagnosticDeltaInput): Diag
           return rank === null ? [] : [rank];
         })
         .sort(compareMatchRanks);
-      for (const rankedHead of rankedHeads) {
-        const match = matchedBaseIndexes.has(rankedHead.base.diagnosticIndex)
-          ? rankHead(rankedHead.head)
-          : rankedHead;
-        if (!match) continue;
+      while (rankedHeads.length > 0) {
+        const match = rankedHeads.shift();
+        if (!match) break;
+        if (matchedBaseIndexes.has(match.base.diagnosticIndex)) {
+          const updatedMatch = rankHead(match.head);
+          if (updatedMatch) {
+            rankedHeads.push(updatedMatch);
+            rankedHeads.sort(compareMatchRanks);
+          }
+          continue;
+        }
         matchedHeadIndexes.add(match.head.diagnosticIndex);
         matchedBaseIndexes.add(match.base.diagnosticIndex);
         if (!requireExactMatch) ruleCountMatchCount += 1;
