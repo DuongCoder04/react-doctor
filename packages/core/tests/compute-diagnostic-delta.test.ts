@@ -44,7 +44,7 @@ describe("computeDiagnosticDelta", () => {
     expect(delta.fixedCount).toBe(0);
   });
 
-  it("does not match a detector identity whose occurrence count increased", () => {
+  it("counts findings rather than changes to a detector summary", () => {
     const baseDiagnostic = makeDiagnostic({ matchByOccurrence: true });
     const headDiagnostic = makeDiagnostic({ matchByOccurrence: true });
     Object.defineProperty(baseDiagnostic, DIAGNOSTIC_DELTA_IDENTITY, {
@@ -62,8 +62,8 @@ describe("computeDiagnosticDelta", () => {
       readBaseLine: () => "same summary",
     });
 
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    expect(delta.newDiagnostics).toHaveLength(0);
+    expect(delta.fixedCount).toBe(0);
   });
 
   it("restricts persisted fingerprints to the same file or an explicit rename", () => {
@@ -88,7 +88,7 @@ describe("computeDiagnosticDelta", () => {
     expect(renamed.crossFileMatchCount).toBe(1);
   });
 
-  it("does not fall back to occurrence matching when fingerprints differ", () => {
+  it("matches equal rule counts when fingerprints differ", () => {
     const delta = computeDiagnosticDelta({
       headDiagnostics: [makeDiagnostic({ fingerprint: "new-source", matchByOccurrence: true })],
       baseDiagnostics: [makeDiagnostic({ fingerprint: "old-source", matchByOccurrence: true })],
@@ -96,7 +96,44 @@ describe("computeDiagnosticDelta", () => {
       readHeadLine: () => null,
       readBaseLine: () => null,
     });
-    expect(delta.newDiagnostics).toHaveLength(1);
+    expect(delta.newDiagnostics).toHaveLength(0);
+  });
+
+  it("uses shifted line positions to locate an added duplicate before the old finding", () => {
+    const added = makeDiagnostic({ line: 10, fingerprint: "same" });
+    const old = makeDiagnostic({ line: 30, fingerprint: "same" });
+    const delta = computeDiagnosticDelta({
+      headDiagnostics: [added, old],
+      baseDiagnostics: [makeDiagnostic({ line: 10, fingerprint: "same" })],
+      readHeadLine: () => null,
+      readBaseLine: () => null,
+      mapBaseLine: (_filePath, line) => line + 20,
+    });
+    expect(delta.newDiagnostics).toEqual([added]);
+  });
+
+  it("retains the least similar extra finding after a reformat", () => {
+    const added = makeDiagnostic({ line: 10, message: "Missing dependency: payment" });
+    const old = makeDiagnostic({ line: 40, message: "Missing dependency: value" });
+    const delta = computeDiagnosticDelta({
+      headDiagnostics: [added, old],
+      baseDiagnostics: [makeDiagnostic({ line: 10, message: "Missing dependency: value" })],
+      readHeadLine: () => "reformatted code",
+      readBaseLine: () => "original code",
+    });
+    expect(delta.newDiagnostics).toEqual([added]);
+    expect(delta.ruleCountMatchCount).toBe(1);
+  });
+
+  it("does not move allowance between different rules or files", () => {
+    const added = [makeDiagnostic({ rule: "other-rule" }), makeDiagnostic({ filePath: "new.tsx" })];
+    const delta = computeDiagnosticDelta({
+      headDiagnostics: added,
+      baseDiagnostics: [makeDiagnostic(), makeDiagnostic()],
+      readHeadLine: () => "same",
+      readBaseLine: () => "same",
+    });
+    expect(delta.newDiagnostics).toEqual(added);
   });
 
   it("flags a diagnostic present only in head as new", () => {
@@ -130,6 +167,7 @@ describe("computeDiagnosticDelta", () => {
   it("matches unchanged diagnostic evidence after it moves to another file", () => {
     const flagged = "items.map((item, index) => <Row key={index} />)";
     const delta = computeDiagnosticDelta({
+      renamedFiles: { "src/App.tsx": "src/Rows.tsx" },
       headDiagnostics: [makeDiagnostic({ filePath: "src/Rows.tsx", line: 4 })],
       baseDiagnostics: [makeDiagnostic({ filePath: "src/App.tsx", line: 10 })],
       readHeadLine: lineReaderFrom({ "src/Rows.tsx:4": flagged }),
@@ -204,21 +242,20 @@ describe("computeDiagnosticDelta", () => {
     expect(delta.crossFileMatchCount).toBe(0);
   });
 
-  it("distinguishes the same rule on different line content", () => {
+  it("matches the same rule after the flagged content changes", () => {
     const base = [makeDiagnostic({ line: 10 })];
     const head = [makeDiagnostic({ line: 10 })];
     const delta = computeDiagnosticDelta({
       headDiagnostics: head,
       baseDiagnostics: base,
-      // The flagged line's content changed, so it's a new instance (+ the old one fixed).
       readHeadLine: lineReaderFrom({ "src/App.tsx:10": "rows.map((x, idx) => <Row key={idx} />)" }),
       readBaseLine: lineReaderFrom({ "src/App.tsx:10": "items.map((x, i) => <Row key={i} />)" }),
     });
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    expect(delta.newDiagnostics).toHaveLength(0);
+    expect(delta.fixedCount).toBe(0);
   });
 
-  it("distinguishes a changed message when the diagnosed source is unchanged", () => {
+  it("matches the same rule after the diagnostic message changes", () => {
     const flagged = "}, [selectedIds]);";
     const delta = computeDiagnosticDelta({
       headDiagnostics: [
@@ -233,11 +270,11 @@ describe("computeDiagnosticDelta", () => {
       readHeadLine: lineReaderFrom({ "src/App.tsx:10": flagged }),
       readBaseLine: lineReaderFrom({ "src/App.tsx:10": flagged }),
     });
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    expect(delta.newDiagnostics).toHaveLength(0);
+    expect(delta.fixedCount).toBe(0);
   });
 
-  it("uses the full diagnosed source range when evidence readers are supplied", () => {
+  it("matches equal counts after the diagnosed source range changes", () => {
     const delta = computeDiagnosticDelta({
       headDiagnostics: [makeDiagnostic({ endLine: 12 })],
       baseDiagnostics: [makeDiagnostic({ endLine: 12 })],
@@ -246,8 +283,8 @@ describe("computeDiagnosticDelta", () => {
       readHeadEvidence: () => "useEffect(() => {\n  setSrc(undefined);\n}, [persistKey]);",
       readBaseEvidence: () => "useEffect(() => {\n  setOpen(false);\n}, [persistKey]);",
     });
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    expect(delta.newDiagnostics).toHaveLength(0);
+    expect(delta.fixedCount).toBe(0);
   });
 
   it("matches a pre-existing occurrence-matched finding whose flagged line was reformatted", () => {

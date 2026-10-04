@@ -18,6 +18,32 @@ const EFFECT = [
   "};",
   "",
 ].join("\n");
+const HOSTED_CART = [
+  "import React, { useEffect, useState } from 'react';",
+  "import { createPortal } from 'react-dom';",
+  "export const HostedCart = ({ orderId, value }) => {",
+  "  const [order, setOrder] = useState(null);",
+  "  useEffect(() => {",
+  "    const loadOrder = async () => {",
+  "      const response = await fetch('/orders/' + orderId);",
+  "      setOrder(await response.json());",
+  "    };",
+  "    void loadOrder();",
+  "  }, [orderId]);",
+  "  useEffect(() => { document.title = value; }, ['cart']);",
+  "  return <div>{order?.id}</div>;",
+  "};",
+  "",
+].join("\n");
+const REFORMATTED_HOSTED_CART = HOSTED_CART.replaceAll("'", '"')
+  .replace(
+    'import React, { useEffect, useState } from "react";\nimport { createPortal } from "react-dom";',
+    'import { createPortal } from "react-dom";\nimport React, { useEffect, useState } from "react";',
+  )
+  .replaceAll("  ", "    ");
+const NEW_DERIVED_STATE =
+  "export const useBad = (value) => { const [state, setState] = React.useState(0); React.useEffect(() => { setState(value) }, [value]); return state }\n";
+
 const ROWS = (count: number): string =>
   [
     "export const Rows = ({ rows }) => <ul>",
@@ -37,6 +63,9 @@ const scan = (directory: string, flags: string[] = []) => {
       directory,
       "--json",
       "--no-score",
+      "--no-telemetry",
+      "--no-supply-chain",
+      "--no-respect-inline-disables",
       "--no-dead-code",
       "--no-cache",
       "--yes",
@@ -80,6 +109,23 @@ const CASES: ComparisonCase[] = [
     expectedLine: 5,
   },
   { name: "unchanged tree", baseSource: EFFECT, expectedCount: 0 },
+  {
+    name: "rename a dependency inside a flagged node",
+    baseSource: EFFECT,
+    headSource: EFFECT.replaceAll("value", "renamedValue"),
+    expectedCount: 0,
+  },
+  {
+    name: "insert an identical violation before an existing one",
+    baseSource: EFFECT,
+    headSource: EFFECT.replace(
+      "  useEffect(() => {",
+      "  useEffect(() => { document.title = value; }, []);\n  useEffect(() => {",
+    ),
+    expectedCount: 1,
+    expectedRule: "exhaustive-deps",
+    expectedLine: 3,
+  },
   {
     name: "edit inside an existing effect",
     baseSource: EFFECT,
@@ -199,6 +245,61 @@ describe("changed scope compares findings through the CLI", () => {
       expect(savedResult.report.baseline?.baseTotalCount).toBe(
         gitResult.report.baseline?.baseTotalCount,
       );
+    }
+  });
+
+  it("keeps the HostedCart findings after reformatting and reports only an added derived state", () => {
+    const sourcePath = path.join(directory, "src/HostedCart.tsx");
+    writeFile(sourcePath, HOSTED_CART);
+    commitAll(directory, "base cart findings");
+    const base = scan(directory);
+    expect(base.report.diagnostics.some((finding) => finding.rule === "exhaustive-deps")).toBe(
+      true,
+    );
+    expect(
+      base.report.diagnostics.some(
+        (finding) => finding.rule === "no-set-state-after-await-in-effect",
+      ),
+    ).toBe(true);
+    writeJson(reportFile, base.report);
+    for (const appended of ["", NEW_DERIVED_STATE]) {
+      writeFile(sourcePath, REFORMATTED_HOSTED_CART + appended);
+      const gitResult = scan(directory, ["--scope", "changed", "--base", "HEAD"]);
+      const savedResult = scan(directory, ["--scope", "changed", "--baseline", reportFile]);
+      const fullSavedResult = scan(directory, ["--baseline", reportFile]);
+      for (const result of [gitResult, savedResult, fullSavedResult]) {
+        expect(result.report.diagnostics.map((finding) => finding.rule)).toEqual(
+          appended ? ["no-derived-state"] : [],
+        );
+        expect(result.report.summary.totalDiagnosticCount).toBe(appended ? 1 : 0);
+        expect(result.status).toBe(appended ? 1 : 0);
+        if (appended) expect(result.report.diagnostics[0]?.line).toBe(15);
+      }
+    }
+  });
+
+  it.each([
+    { ignore: { rules: ["react-hooks/exhaustive-deps"] } },
+    { ignore: { tags: ["test-noise"] } },
+    { rules: { "react-hooks/exhaustive-deps": "off" } },
+    { ignore: { overrides: [{ files: ["src/app.tsx"], rules: ["react-hooks/exhaustive-deps"] }] } },
+  ])("applies current config to both sides of a saved comparison: %j", (config) => {
+    const sourcePath = path.join(directory, "src/app.tsx");
+    writeFile(sourcePath, EFFECT);
+    commitAll(directory, "base finding");
+    writeJson(reportFile, scan(directory).report);
+    writeJson(path.join(directory, "doctor.config.json"), config);
+    writeFile(sourcePath, EFFECT + "\n");
+    for (const flags of [
+      ["--base", "HEAD"],
+      ["--baseline", reportFile],
+    ]) {
+      const result = scan(directory, ["--scope", "changed", ...flags]);
+      expect(result.status).toBe(0);
+      expect(result.report.diagnostics).toEqual([]);
+      if (result.report.schemaVersion !== 3) throw new Error("Expected schema version 3");
+      expect(result.report.baseline?.baseTotalCount).toBe(0);
+      expect(result.report.baseline?.matchedCount).toBe(0);
     }
   });
 

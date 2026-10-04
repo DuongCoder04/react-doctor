@@ -1,7 +1,11 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
-import { computeDiagnosticDelta, DIAGNOSTIC_DELTA_IDENTITY } from "@react-doctor/core";
+import {
+  computeDiagnosticDelta,
+  DIAGNOSTIC_DELTA_IDENTITY,
+  fingerprintDiagnosticEvidence,
+} from "@react-doctor/core";
 import type { Diagnostic } from "@react-doctor/core";
 import { afterEach, beforeEach, describe, expect, it } from "vite-plus/test";
 import { createDiagnosticEvidenceReader } from "../src/cli/utils/read-diagnostic-evidence.js";
@@ -70,22 +74,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\nconst handleSuggestion = useCallback((text) => {\n  handleSendMessage(text);\n}, [handleSendMessage]);\n<ChatMessageBubble onSuggestion={handleSuggestion} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.fixedCount).toBe(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("resolves a handler through a qualified React.useCallback call", () => {
@@ -102,22 +101,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\nconst handleSuggestion = React.useCallback((text) => {\n  handleSendMessage(text);\n}, [handleSendMessage]);\n<ChatMessageBubble onSuggestion={handleSuggestion} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.fixedCount).toBe(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("unwraps typed handler bindings at component callsites", () => {
@@ -134,22 +128,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\ntype Handler = (text: string) => void;\n<ChatMessageBubble onSuggestion={handleSendMessage as Handler} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.fixedCount).toBe(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("ignores recursive renders inside the diagnosed component", () => {
@@ -166,22 +155,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\n<ChatMessageBubble onSuggestion={handleSendMessage} nested />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.fixedCount).toBe(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("resolves a default-exported arrow component through an aliased import", () => {
@@ -198,21 +182,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import Bubble from "./chat-message-bubble";\n<Bubble onSuggestion={handleSendMessage} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("matches a handler extracted into a memo and forwardRef wrapped component", () => {
@@ -229,22 +209,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\n<ChatMessageBubble onSuggestion={handleSendMessage} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.fixedCount).toBe(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("uses the diagnostic column to find a single-line arrow component", () => {
@@ -285,21 +260,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble.js";\n<ChatMessageBubble onSuggestion={handleSendMessage} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("does not treat a default import as a named diagnosed component", () => {
@@ -316,20 +287,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import Bubble from "./chat-message-bubble";\n<Bubble onSuggestion={handleSendMessage} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 3, endLine: 5 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).not.toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("ignores same-named bindings in sibling lexical scopes", () => {
@@ -346,21 +314,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\nconst handleSuggestion = (text) => handleSendMessage(text);\nfunction Sibling() {\n  const handleSuggestion = (text) => discardMessage(text);\n  return null;\n}\n<ChatMessageBubble onSuggestion={handleSuggestion} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("does not resolve through an outer binding shadowed by a parameter", () => {
@@ -377,21 +341,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\nconst handleSuggestion = (text) => handleSendMessage(text);\nfunction ChatPage({ handleSuggestion }) {\n  return <ChatMessageBubble onSuggestion={handleSuggestion} />;\n}\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).not.toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("treats imported handlers as opaque lexical bindings", () => {
@@ -433,22 +393,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\n<ChatMessageBubble onSuggestion={handleSendMessage} />;\n<ChatMessageBubble onSuggestion={discardMessage} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
-    expect(delta.crossFileMatchCount).toBe(0);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).not.toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("refuses to equate a forwarded prop when a callsite binding is unresolved", () => {
@@ -465,21 +420,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\n<ChatMessageBubble onSuggestion={handleSendMessage} />;\n<ChatMessageBubble onSuggestion={() => discardMessage()} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(1);
-    expect(delta.fixedCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).not.toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("ignores same-named components that do not import the diagnosed component", () => {
@@ -500,21 +451,17 @@ describe("createDiagnosticEvidenceReader", () => {
       "const ChatMessageBubble = ({ onSuggestion }) => null;\n<ChatMessageBubble onSuggestion={discardMessage} />;\n",
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(0);
-    expect(delta.crossFileMatchCount).toBe(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("rejects a wrapper that changes forwarded arguments", () => {
@@ -531,20 +478,17 @@ describe("createDiagnosticEvidenceReader", () => {
       'import { ChatMessageBubble } from "./chat-message-bubble";\nconst handleSuggestion = (text) => handleSendMessage(text.trim());\n<ChatMessageBubble onSuggestion={handleSuggestion} />;\n',
     );
 
-    const delta = computeDiagnosticDelta({
-      headDiagnostics: [
-        makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }),
-      ],
-      baseDiagnostics: [makeDiagnostic({ line: 2, endLine: 4 })],
-      readHeadLine: () => null,
-      readBaseLine: () => null,
-      readHeadEvidence: createDiagnosticEvidenceReader(rootDirectory, {
-        resolveForwardedHandlers: true,
-      }),
-      readBaseEvidence: createDiagnosticEvidenceReader(rootDirectory),
-    });
-
-    expect(delta.newDiagnostics).toHaveLength(1);
+    const headEvidence = createDiagnosticEvidenceReader(rootDirectory, {
+      resolveForwardedHandlers: true,
+    })(makeDiagnostic({ filePath: "src/chat-message-bubble.tsx", line: 2, endLine: 4 }));
+    const baseEvidence = createDiagnosticEvidenceReader(rootDirectory)(
+      makeDiagnostic({ line: 2, endLine: 4 }),
+    );
+    expect(headEvidence).not.toBeNull();
+    expect(baseEvidence).not.toBeNull();
+    expect(fingerprintDiagnosticEvidence(headEvidence ?? "")).not.toBe(
+      fingerprintDiagnosticEvidence(baseEvidence ?? ""),
+    );
   });
 
   it("does not read diagnostic paths outside the project", () => {

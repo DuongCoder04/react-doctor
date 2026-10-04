@@ -181,6 +181,8 @@ const buildProjectInspectOptions = ({
       savedBaseline && context.flags.baseline
         ? {
             file: context.flags.baseline,
+            sourceRevision:
+              savedBaseline.schemaVersion === 3 ? savedBaseline.sourceRevision : undefined,
             diagnostics: savedBaseline.projects.flatMap((project) => {
               const projectRelativePath = path.relative(savedBaseline.directory, project.directory);
               if (path.resolve(context.resolvedDirectory, projectRelativePath) !== scanDirectory)

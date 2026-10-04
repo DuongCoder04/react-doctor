@@ -4,100 +4,43 @@ import type { Diagnostic } from "./types/index.js";
 export const DIAGNOSTIC_DELTA_IDENTITY = Symbol.for("react-doctor/diagnostic-delta-identity");
 
 export interface DiagnosticDelta {
-  /** Diagnostics present in head with no base match — introduced by the change. */
   readonly newDiagnostics: Diagnostic[];
-  /** Count of base diagnostics with no head match — resolved by the change. */
   readonly fixedCount: number;
-  /** Pre-existing diagnostics matched after moving to a different file. */
   readonly crossFileMatchCount: number;
+  readonly ruleCountMatchCount: number;
 }
 
 export interface ComputeDiagnosticDeltaInput {
-  /** When provided, cross-file matches require an entry from old path to new path. */
   readonly renamedFiles?: Readonly<Record<string, string>>;
   readonly headDiagnostics: ReadonlyArray<Diagnostic>;
   readonly baseDiagnostics: ReadonlyArray<Diagnostic>;
   readonly readHeadLine: (filePath: string, line: number) => string | null;
   readonly readBaseLine: (filePath: string, line: number) => string | null;
-  /** Returns the normalized source range diagnosed in the head tree. */
   readonly readHeadEvidence?: (diagnostic: Diagnostic) => string | null;
-  /** Returns the normalized source range diagnosed in the base tree. */
   readonly readBaseEvidence?: (diagnostic: Diagnostic) => string | null;
+  readonly mapBaseLine?: (headFilePath: string, baseLine: number) => number;
 }
 
-interface DiagnosticMatchKeys {
-  readonly stableEvidenceKey: string | null;
-  readonly sameFileStableEvidenceKey: string | null;
-  readonly sameFileFallbackKey: string | null;
-}
-
-interface DiagnosticMatchCandidate extends DiagnosticMatchKeys {
+interface DiagnosticMatchCandidate {
   readonly diagnosticIndex: number;
+  readonly filePath: string;
+  readonly groupKey: string;
+  readonly fingerprint: string | null;
+  readonly message: string;
+  readonly messageWords: ReadonlySet<string>;
+  readonly line: number;
 }
 
-const getDiagnosticMatchKeys = (
-  diagnostic: Diagnostic,
-  evidence: string | null,
-): DiagnosticMatchKeys => {
-  const ruleKey = `${diagnostic.plugin}/${diagnostic.rule}`;
-  const messageFingerprint = fingerprintDiagnosticEvidence(
-    `${diagnostic.title ?? ""}\0${diagnostic.message}`,
-  );
-  const evidenceFingerprint =
-    diagnostic.fingerprint ?? (evidence?.trim() ? fingerprintDiagnosticEvidence(evidence) : null);
-  const explicitIdentity = Reflect.get(diagnostic, DIAGNOSTIC_DELTA_IDENTITY);
-  let explicitIdentityKey: string | null = null;
-  if (typeof explicitIdentity === "string") {
-    explicitIdentityKey = `identity\0${ruleKey}\0${fingerprintDiagnosticEvidence(explicitIdentity)}`;
-  } else if (diagnostic.fingerprint?.startsWith("identity:")) {
-    explicitIdentityKey = `identity\0${ruleKey}\0${diagnostic.fingerprint.slice("identity:".length)}`;
-  }
-  const stableEvidenceKey =
-    explicitIdentityKey ??
-    (evidenceFingerprint !== null
-      ? `evidence\0${ruleKey}\0${messageFingerprint}\0${evidenceFingerprint}`
-      : null);
-  return {
-    stableEvidenceKey,
-    sameFileStableEvidenceKey:
-      stableEvidenceKey === null ? null : `${diagnostic.filePath}\0${stableEvidenceKey}`,
-    sameFileFallbackKey:
-      explicitIdentityKey === null &&
-      diagnostic.fingerprint === undefined &&
-      (diagnostic.matchByOccurrence || evidenceFingerprint === null)
-        ? `fallback\0${diagnostic.filePath}\0${ruleKey}\0${messageFingerprint}`
-        : null,
-  };
-};
+interface DiagnosticMatchRank {
+  readonly fingerprintMatch: number;
+  readonly messageSimilarity: number;
+  readonly lineDistance: number;
+}
 
-const addDiagnosticIndex = (
-  buckets: Map<string, number[]>,
-  key: string | null,
-  diagnosticIndex: number,
-): void => {
-  if (key === null) return;
-  const diagnosticIndexes = buckets.get(key) ?? [];
-  diagnosticIndexes.push(diagnosticIndex);
-  buckets.set(key, diagnosticIndexes);
-};
-
-const takeMatchingDiagnosticIndex = (
-  buckets: ReadonlyMap<string, ReadonlyArray<number>>,
-  key: string | null,
-  matchedDiagnosticIndexes: ReadonlySet<number>,
-): number | null => {
-  if (key === null) return null;
-  for (const diagnosticIndex of buckets.get(key) ?? []) {
-    if (!matchedDiagnosticIndexes.has(diagnosticIndex)) return diagnosticIndex;
-  }
-  return null;
-};
-
-const readDiagnosticEvidence = (
-  diagnostic: Diagnostic,
-  readEvidence: ComputeDiagnosticDeltaInput["readHeadEvidence"],
-  readLine: ComputeDiagnosticDeltaInput["readHeadLine"],
-): string | null => readEvidence?.(diagnostic) ?? readLine(diagnostic.filePath, diagnostic.line);
+interface RankedDiagnosticMatch extends DiagnosticMatchRank {
+  readonly head: DiagnosticMatchCandidate;
+  readonly base: DiagnosticMatchCandidate;
+}
 
 const buildMatchCandidates = (
   diagnostics: ReadonlyArray<Diagnostic>,
@@ -105,27 +48,53 @@ const buildMatchCandidates = (
   readLine: ComputeDiagnosticDeltaInput["readHeadLine"],
   renamedFiles: Readonly<Record<string, string>> = {},
 ): DiagnosticMatchCandidate[] =>
-  diagnostics.map((diagnostic, diagnosticIndex) => ({
-    diagnosticIndex,
-    ...getDiagnosticMatchKeys(
-      { ...diagnostic, filePath: renamedFiles[diagnostic.filePath] ?? diagnostic.filePath },
-      readDiagnosticEvidence(diagnostic, readEvidence, readLine),
-    ),
-  }));
+  diagnostics.map((diagnostic, diagnosticIndex) => {
+    const filePath = renamedFiles[diagnostic.filePath] ?? diagnostic.filePath;
+    const evidence = readEvidence?.(diagnostic) ?? readLine(diagnostic.filePath, diagnostic.line);
+    const explicitIdentity = Reflect.get(diagnostic, DIAGNOSTIC_DELTA_IDENTITY);
+    let fingerprint = diagnostic.fingerprint ?? null;
+    if (typeof explicitIdentity === "string") {
+      fingerprint = `identity:${fingerprintDiagnosticEvidence(explicitIdentity)}`;
+    } else if (fingerprint === null && evidence?.trim()) {
+      fingerprint = fingerprintDiagnosticEvidence(evidence);
+    }
+    const message = `${diagnostic.title ?? ""}\0${diagnostic.message}`;
+    return {
+      diagnosticIndex,
+      filePath,
+      groupKey: `${filePath}\0${diagnostic.plugin}/${diagnostic.rule}`,
+      fingerprint,
+      message,
+      messageWords: new Set(message.toLowerCase().match(/\w+/g) ?? []),
+      line: diagnostic.line,
+    };
+  });
 
-/**
- * Diffs a head scan against a base scan using a multiset of construct-level
- * evidence. Detector-provided identities take precedence when source text is
- * intentionally normalized. Otherwise, stable identities combine plugin/rule,
- * the diagnostic message, and normalized diagnosed source, so unchanged
- * findings can move across files while changed constructs or messages remain
- * new. Cardinality is retained for identical findings. Diagnostics explicitly marked
- * `matchByOccurrence` may fall back to same-file plugin/rule/message matching
- * after same-file strict evidence matching. Cross-file evidence matching runs
- * last so a copy cannot consume a reformatted local occurrence. Unreadable
- * evidence uses the same conservative fallback rather than matching across
- * files without proof.
- */
+const compareMatchRanks = (left: DiagnosticMatchRank, right: DiagnosticMatchRank): number =>
+  right.fingerprintMatch - left.fingerprintMatch ||
+  right.messageSimilarity - left.messageSimilarity ||
+  left.lineDistance - right.lineDistance;
+
+const rankDiagnosticMatch = (
+  head: DiagnosticMatchCandidate,
+  base: DiagnosticMatchCandidate,
+  mapBaseLine: ComputeDiagnosticDeltaInput["mapBaseLine"],
+): RankedDiagnosticMatch => {
+  let sharedWordCount = 0;
+  for (const word of head.messageWords) {
+    if (base.messageWords.has(word)) sharedWordCount += 1;
+  }
+  const unionWordCount = head.messageWords.size + base.messageWords.size - sharedWordCount;
+  return {
+    head,
+    base,
+    fingerprintMatch: Number(head.fingerprint !== null && head.fingerprint === base.fingerprint),
+    messageSimilarity:
+      head.message === base.message ? 1 : sharedWordCount / Math.max(1, unionWordCount),
+    lineDistance: Math.abs(head.line - (mapBaseLine?.(base.filePath, base.line) ?? base.line)),
+  };
+};
+
 export const computeDiagnosticDelta = (input: ComputeDiagnosticDeltaInput): DiagnosticDelta => {
   const baseCandidates = buildMatchCandidates(
     input.baseDiagnostics,
@@ -138,70 +107,67 @@ export const computeDiagnosticDelta = (input: ComputeDiagnosticDeltaInput): Diag
     input.readHeadEvidence,
     input.readHeadLine,
   );
-  const baseByStableEvidence = new Map<string, number[]>();
-  const baseBySameFileStableEvidence = new Map<string, number[]>();
-  const baseBySameFileFallback = new Map<string, number[]>();
-  for (const candidate of baseCandidates) {
-    addDiagnosticIndex(
-      baseByStableEvidence,
-      candidate.stableEvidenceKey,
-      candidate.diagnosticIndex,
-    );
-    addDiagnosticIndex(
-      baseBySameFileStableEvidence,
-      candidate.sameFileStableEvidenceKey,
-      candidate.diagnosticIndex,
-    );
-    addDiagnosticIndex(
-      baseBySameFileFallback,
-      candidate.sameFileFallbackKey,
-      candidate.diagnosticIndex,
-    );
-  }
-
-  const matchedHeadDiagnosticIndexes = new Set<number>();
-  const matchedBaseDiagnosticIndexes = new Set<number>();
-  const matchCandidates = (
-    baseBuckets: ReadonlyMap<string, ReadonlyArray<number>>,
-    getKey: (candidate: DiagnosticMatchCandidate) => string | null,
-    onMatch?: (headDiagnosticIndex: number, baseDiagnosticIndex: number) => void,
-  ): void => {
-    for (const candidate of headCandidates) {
-      if (matchedHeadDiagnosticIndexes.has(candidate.diagnosticIndex)) continue;
-      const baseDiagnosticIndex = takeMatchingDiagnosticIndex(
-        baseBuckets,
-        getKey(candidate),
-        matchedBaseDiagnosticIndexes,
-      );
-      if (baseDiagnosticIndex === null) continue;
-      matchedHeadDiagnosticIndexes.add(candidate.diagnosticIndex);
-      matchedBaseDiagnosticIndexes.add(baseDiagnosticIndex);
-      onMatch?.(candidate.diagnosticIndex, baseDiagnosticIndex);
+  const baseGroups = new Map<string, DiagnosticMatchCandidate[]>();
+  const headGroups = new Map<string, DiagnosticMatchCandidate[]>();
+  for (const [candidates, groups] of [
+    [baseCandidates, baseGroups],
+    [headCandidates, headGroups],
+  ] satisfies ReadonlyArray<
+    readonly [DiagnosticMatchCandidate[], Map<string, DiagnosticMatchCandidate[]>]
+  >) {
+    for (const candidate of candidates) {
+      const group = groups.get(candidate.groupKey) ?? [];
+      group.push(candidate);
+      groups.set(candidate.groupKey, group);
     }
-  };
-
-  matchCandidates(baseBySameFileStableEvidence, (candidate) => candidate.sameFileStableEvidenceKey);
-  matchCandidates(baseBySameFileFallback, (candidate) => candidate.sameFileFallbackKey);
-  let unrestrictedCrossFileMatchCount = 0;
-  if (input.renamedFiles === undefined) {
-    matchCandidates(
-      baseByStableEvidence,
-      (candidate) => candidate.stableEvidenceKey,
-      (headIndex, baseIndex) => {
-        if (input.headDiagnostics[headIndex].filePath !== input.baseDiagnostics[baseIndex].filePath)
-          unrestrictedCrossFileMatchCount += 1;
-      },
-    );
   }
-  const crossFileMatchCount =
-    [...matchedBaseDiagnosticIndexes].filter((diagnosticIndex) =>
+
+  const matchedHeadIndexes = new Set<number>();
+  const matchedBaseIndexes = new Set<number>();
+  let ruleCountMatchCount = 0;
+  for (const [groupKey, headGroup] of headGroups) {
+    const baseGroup = baseGroups.get(groupKey);
+    if (!baseGroup) continue;
+    for (const requireExactMatch of [true, false]) {
+      const rankHead = (head: DiagnosticMatchCandidate): RankedDiagnosticMatch | null => {
+        let bestMatch: RankedDiagnosticMatch | null = null;
+        for (const base of baseGroup) {
+          if (matchedBaseIndexes.has(base.diagnosticIndex)) continue;
+          const rank = rankDiagnosticMatch(head, base, input.mapBaseLine);
+          if (requireExactMatch && (rank.fingerprintMatch === 0 || head.message !== base.message)) {
+            continue;
+          }
+          if (bestMatch === null || compareMatchRanks(rank, bestMatch) < 0) bestMatch = rank;
+        }
+        return bestMatch;
+      };
+      const rankedHeads = headGroup
+        .filter((head) => !matchedHeadIndexes.has(head.diagnosticIndex))
+        .flatMap((head) => {
+          const rank = rankHead(head);
+          return rank === null ? [] : [rank];
+        })
+        .sort(compareMatchRanks);
+      for (const rankedHead of rankedHeads) {
+        const match = matchedBaseIndexes.has(rankedHead.base.diagnosticIndex)
+          ? rankHead(rankedHead.head)
+          : rankedHead;
+        if (!match) continue;
+        matchedHeadIndexes.add(match.head.diagnosticIndex);
+        matchedBaseIndexes.add(match.base.diagnosticIndex);
+        if (!requireExactMatch) ruleCountMatchCount += 1;
+      }
+    }
+  }
+
+  return {
+    newDiagnostics: input.headDiagnostics.filter(
+      (_diagnostic, diagnosticIndex) => !matchedHeadIndexes.has(diagnosticIndex),
+    ),
+    fixedCount: input.baseDiagnostics.length - matchedBaseIndexes.size,
+    crossFileMatchCount: [...matchedBaseIndexes].filter((diagnosticIndex) =>
       Boolean(input.renamedFiles?.[input.baseDiagnostics[diagnosticIndex].filePath]),
-    ).length + unrestrictedCrossFileMatchCount;
-
-  const newDiagnostics = input.headDiagnostics.filter(
-    (_diagnostic, diagnosticIndex) => !matchedHeadDiagnosticIndexes.has(diagnosticIndex),
-  );
-  const fixedCount = input.baseDiagnostics.length - matchedBaseDiagnosticIndexes.size;
-
-  return { newDiagnostics, fixedCount, crossFileMatchCount };
+    ).length,
+    ruleCountMatchCount,
+  };
 };

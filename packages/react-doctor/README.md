@@ -95,7 +95,7 @@ URLs, source paths, and React profiling details. Treat it as sensitive applicati
 
 `--scope changed --base <ref>` reports only new findings in files touched by the diff. It scans those files at the base and in the current tree. Uncommitted changes use `HEAD` when the base is the current branch.
 
-A match uses the rule ID, file path (following Git renames), diagnostic message, and a fingerprint of the flagged source span with whitespace normalized. Line and column numbers do not affect the match. Each base finding matches at most one current finding: two matching findings at base and three now produce one new finding. Changes elsewhere in a function do not change a finding's fingerprint. Changed flagged code or a changed message can produce a new finding.
+Findings are grouped by file path (following Git renames) and rule ID. Exact fingerprint and message matches are paired first. For each remaining group, only the increase in finding count is new: two findings at base and three now produce one new finding; two at base and two now produce none. Formatting, variable renames, edits inside flagged code, and line shifts do not create new findings when the count stays the same. When the count increases, source fingerprints, message similarity, and line distance adjusted for Git diff shifts select the most likely added findings. Current rule, severity, tag, and ignore settings apply before matching.
 
 New files have no base findings. Add `--include-untracked` to scan untracked files too. Deleted files and removed findings are not reported. `--blocking`, the exit code, and summary counts use only the unmatched current findings. The score still describes the current scan.
 

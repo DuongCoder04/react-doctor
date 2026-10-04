@@ -444,6 +444,7 @@ const buildOutcomeAttributes = (input: RunEventInput): RunEventAttributes => {
         baseTotal: result.baselineDelta.baseTotalCount,
         crossFileMatches: result.baselineDelta.crossFileMatchCount,
         source: result.baselineDelta.source ?? "base",
+        ruleCountMatches: result.baselineDelta.ruleCountMatchCount ?? 0,
         degraded: false,
       }),
     );

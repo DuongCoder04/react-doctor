@@ -85,6 +85,7 @@ export interface InspectResult {
     baseTotalCount: number;
     /** Pre-existing findings matched after moving to a different file. */
     crossFileMatchCount?: number;
+    ruleCountMatchCount?: number;
   };
 }
 
@@ -156,6 +157,7 @@ export interface InspectOptions {
   };
   baselineReport?: {
     file: string;
+    sourceRevision?: string;
     diagnostics: ReadonlyArray<Diagnostic>;
     renamedFiles?: Readonly<Record<string, string>>;
   };

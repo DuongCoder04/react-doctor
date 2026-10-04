@@ -28,6 +28,7 @@ import { BASELINE_FILES_TEMP_DIR_PREFIX } from "./constants.js";
 import { countDeadlineSkippedFiles } from "./count-deadline-skipped-files.js";
 import { countDroppedLintFiles } from "./count-dropped-lint-files.js";
 import { copyUnchangedBaselineSources } from "./copy-unchanged-baseline-sources.js";
+import { readBaselineLineMap } from "./read-baseline-line-map.js";
 import { withDiagnosticFingerprints } from "./with-diagnostic-fingerprints.js";
 import { materializeBaselineFiles } from "./materialize-baseline-files.js";
 import { makeNoopConsole } from "./noop-console.js";
@@ -266,6 +267,7 @@ export const runBaselineComparison = async (
     const diagnosticDelta = computeDiagnosticDelta({
       headDiagnostics: input.headDiagnostics,
       renamedFiles: snapshot.renamedFiles ?? {},
+      mapBaseLine: readBaselineLineMap(input.directory, input.baselineRef),
       baseDiagnostics: withDiagnosticFingerprints(snapshot.tempDirectory, baseOutput.diagnostics),
       readHeadLine: () => null,
       readBaseLine: () => null,
@@ -279,6 +281,7 @@ export const runBaselineComparison = async (
         fixedCount: hasUnscannedUntrackedSourceFiles ? 0 : diagnosticDelta.fixedCount,
         baseTotalCount: baseOutput.diagnostics.length,
         crossFileMatchCount: diagnosticDelta.crossFileMatchCount,
+        ruleCountMatchCount: diagnosticDelta.ruleCountMatchCount,
       },
     };
   } finally {
