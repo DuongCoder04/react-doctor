@@ -43,7 +43,7 @@ interface SafeRuleCase {
 
 const REACT_ROUTER_FRAMEWORK_ROUTE_OPTIONS = {
   filename: "/project/app/routes/dashboard.tsx",
-  settings: { "react-doctor": { capabilities: ["react-router-framework"] } },
+  settings: { "react-doctor": { capabilities: ["react-router-framework", "react-router:6.4"] } },
 };
 
 const REACT_ROUTER_FRAMEWORK_SERVER_ENTRY_OPTIONS = {
@@ -603,7 +603,7 @@ describe("React Router rule regressions", () => {
       {
         filename: "/project/app/root.tsx",
         settings: {
-          "react-doctor": { capabilities: ["react-router-framework"] },
+          "react-doctor": { capabilities: ["react-router-framework", "react-router:6.4"] },
         },
       },
     );
