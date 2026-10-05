@@ -55,7 +55,7 @@ const ROWS = (count: number): string =>
     "",
   ].join("\n");
 
-const scan = (directory: string, flags: string[] = []) => {
+const scan = (directory: string, flags: string[] = [], respectInlineDisables = false) => {
   const result = spawnSync(
     process.execPath,
     [
@@ -65,7 +65,7 @@ const scan = (directory: string, flags: string[] = []) => {
       "--no-score",
       "--no-telemetry",
       "--no-supply-chain",
-      "--no-respect-inline-disables",
+      ...(respectInlineDisables ? [] : ["--no-respect-inline-disables"]),
       "--no-dead-code",
       "--no-cache",
       "--yes",
@@ -300,6 +300,77 @@ describe("changed scope compares findings through the CLI", () => {
       if (result.report.schemaVersion !== 3) throw new Error("Expected schema version 3");
       expect(result.report.baseline?.baseTotalCount).toBe(0);
       expect(result.report.baseline?.matchedCount).toBe(0);
+    }
+  });
+
+  it.each([{ textComponents: ["Label"] }, { rawTextWrapperComponents: ["Button"] }])(
+    "rejects changed source filters instead of consuming stale base findings: %j",
+    (config) => {
+      writeFile(path.join(directory, "src/app.tsx"), EFFECT);
+      commitAll(directory, "base");
+      const base = scan(directory);
+      if (base.report.schemaVersion !== 3) throw new Error("Expected schema version 3");
+      expect(base.report.projects[0]?.sourceFilterConfigHash).toMatch(/^[a-f0-9]{64}$/);
+      writeJson(reportFile, base.report);
+      writeJson(path.join(directory, "doctor.config.json"), config);
+      writeFile(path.join(directory, "src/app.tsx"), "\n" + EFFECT);
+      for (const flags of [[], ["--scope", "changed"]]) {
+        const result = scan(directory, ["--baseline", reportFile, ...flags]);
+        expect(result.status).not.toBe(0);
+        expect(result.report.error?.message).toContain("source-dependent filters");
+      }
+    },
+  );
+
+  it("rejects changed inline-disable settings and reports without filter metadata", () => {
+    writeFile(path.join(directory, "src/app.tsx"), EFFECT);
+    commitAll(directory, "base");
+    const base = scan(directory);
+    writeJson(reportFile, base.report);
+    const mismatch = scan(directory, ["--baseline", reportFile], true);
+    expect(mismatch.status).not.toBe(0);
+    expect(mismatch.report.error?.message).toContain("source-dependent filters");
+    if (base.report.schemaVersion !== 3) throw new Error("Expected schema version 3");
+    writeJson(reportFile, {
+      ...base.report,
+      projects: base.report.projects.map(
+        ({ sourceFilterConfigHash: _hash, ...project }) => project,
+      ),
+    });
+    const legacy = scan(directory, ["--baseline", reportFile]);
+    expect(legacy.status).not.toBe(0);
+    expect(legacy.report.error?.message).toContain("source-dependent filter settings");
+  });
+
+  it("retains compatible source filtering after line shifts without Git", () => {
+    writeJson(path.join(directory, "package.json"), {
+      name: "native-fixture",
+      dependencies: { react: "^19.0.0", "react-native": "0.76.0" },
+    });
+    writeJson(path.join(directory, "doctor.config.json"), { rawTextWrapperComponents: ["Button"] });
+    const sourcePath = path.join(directory, "src/app.tsx");
+    const nativeSource =
+      'import { View } from "react-native";\nconst Button = ({ children }) => <View>{children}</View>;\nexport const App = () => <Button>Cancel</Button>;\n';
+    writeFile(sourcePath, nativeSource);
+    commitAll(directory, "filtered native base");
+    const base = scan(directory);
+    expect(base.report.diagnostics.filter((finding) => finding.rule === "rn-no-raw-text")).toEqual(
+      [],
+    );
+    writeJson(reportFile, base.report);
+    writeFile(
+      sourcePath,
+      "\n\n" + nativeSource + "export const Added = () => <View>New raw text</View>;\n",
+    );
+    const gitResult = scan(directory, ["--scope", "changed", "--base", "HEAD"]);
+    fs.rmSync(path.join(directory, ".git"), { recursive: true });
+    const savedResult = scan(directory, ["--baseline", reportFile]);
+    for (const result of [gitResult, savedResult]) {
+      expect(result.status).toBe(1);
+      expect(result.report.error).toBeNull();
+      expect(result.report.diagnostics.map((finding) => [finding.rule, finding.line])).toEqual([
+        ["rn-no-raw-text", 6],
+      ]);
     }
   });
 

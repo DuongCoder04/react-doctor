@@ -21,10 +21,13 @@ export interface ComputeDiagnosticDeltaInput {
   readonly mapBaseLine?: (headFilePath: string, baseLine: number) => number;
 }
 
+interface DiagnosticGroup {
+  readonly headIndexes: number[];
+  readonly baseIndexes: number[];
+}
+
 interface DiagnosticMatchCandidate {
   readonly diagnosticIndex: number;
-  readonly filePath: string;
-  readonly groupKey: string;
   readonly fingerprint: string | null;
   readonly message: string;
   readonly messageWords: ReadonlySet<string>;
@@ -32,148 +35,171 @@ interface DiagnosticMatchCandidate {
 }
 
 interface DiagnosticMatchRank {
-  readonly fingerprintMatch: number;
   readonly messageSimilarity: number;
   readonly lineDistance: number;
 }
 
-interface RankedDiagnosticMatch extends DiagnosticMatchRank {
-  readonly head: DiagnosticMatchCandidate;
-  readonly base: DiagnosticMatchCandidate;
-}
-
 const buildMatchCandidates = (
   diagnostics: ReadonlyArray<Diagnostic>,
+  indexes: ReadonlyArray<number>,
   readEvidence: ComputeDiagnosticDeltaInput["readHeadEvidence"],
   readLine: ComputeDiagnosticDeltaInput["readHeadLine"],
-  renamedFiles: Readonly<Record<string, string>> = {},
+  mapLine: (diagnostic: Diagnostic) => number,
 ): DiagnosticMatchCandidate[] =>
-  diagnostics.map((diagnostic, diagnosticIndex) => {
-    const filePath = renamedFiles[diagnostic.filePath] ?? diagnostic.filePath;
-    const evidence = readEvidence?.(diagnostic) ?? readLine(diagnostic.filePath, diagnostic.line);
+  indexes.map((diagnosticIndex) => {
+    const diagnostic = diagnostics[diagnosticIndex];
     const explicitIdentity = Reflect.get(diagnostic, DIAGNOSTIC_DELTA_IDENTITY);
     let fingerprint = diagnostic.fingerprint ?? null;
     if (typeof explicitIdentity === "string") {
       fingerprint = `identity:${fingerprintDiagnosticEvidence(explicitIdentity)}`;
-    } else if (fingerprint === null && evidence?.trim()) {
-      fingerprint = fingerprintDiagnosticEvidence(evidence);
+    } else if (fingerprint === null) {
+      const evidence = readEvidence?.(diagnostic) ?? readLine(diagnostic.filePath, diagnostic.line);
+      if (evidence?.trim()) fingerprint = fingerprintDiagnosticEvidence(evidence);
     }
     const message = `${diagnostic.title ?? ""}\0${diagnostic.message}`;
     return {
       diagnosticIndex,
-      filePath,
-      groupKey: `${filePath}\0${diagnostic.plugin}/${diagnostic.rule}`,
       fingerprint,
       message,
       messageWords: new Set(message.toLowerCase().match(/\w+/g) ?? []),
-      line: diagnostic.line,
+      line: mapLine(diagnostic),
     };
   });
 
 const compareMatchRanks = (left: DiagnosticMatchRank, right: DiagnosticMatchRank): number =>
-  right.fingerprintMatch - left.fingerprintMatch ||
-  right.messageSimilarity - left.messageSimilarity ||
-  left.lineDistance - right.lineDistance;
+  right.messageSimilarity - left.messageSimilarity || left.lineDistance - right.lineDistance;
 
 const rankDiagnosticMatch = (
   head: DiagnosticMatchCandidate,
   base: DiagnosticMatchCandidate,
-  mapBaseLine: ComputeDiagnosticDeltaInput["mapBaseLine"],
-): RankedDiagnosticMatch => {
+): DiagnosticMatchRank => {
   let sharedWordCount = 0;
   for (const word of head.messageWords) {
     if (base.messageWords.has(word)) sharedWordCount += 1;
   }
   const unionWordCount = head.messageWords.size + base.messageWords.size - sharedWordCount;
   return {
-    head,
-    base,
-    fingerprintMatch: Number(head.fingerprint !== null && head.fingerprint === base.fingerprint),
     messageSimilarity:
       head.message === base.message ? 1 : sharedWordCount / Math.max(1, unionWordCount),
-    lineDistance: Math.abs(head.line - (mapBaseLine?.(base.filePath, base.line) ?? base.line)),
+    lineDistance: Math.abs(head.line - base.line),
   };
 };
 
 export const computeDiagnosticDelta = (input: ComputeDiagnosticDeltaInput): DiagnosticDelta => {
-  const baseCandidates = buildMatchCandidates(
-    input.baseDiagnostics,
-    input.readBaseEvidence,
-    input.readBaseLine,
-    input.renamedFiles,
-  );
-  const headCandidates = buildMatchCandidates(
-    input.headDiagnostics,
-    input.readHeadEvidence,
-    input.readHeadLine,
-  );
-  const baseGroups = new Map<string, DiagnosticMatchCandidate[]>();
-  const headGroups = new Map<string, DiagnosticMatchCandidate[]>();
-  for (const [candidates, groups] of [
-    [baseCandidates, baseGroups],
-    [headCandidates, headGroups],
-  ] satisfies ReadonlyArray<
-    readonly [DiagnosticMatchCandidate[], Map<string, DiagnosticMatchCandidate[]>]
-  >) {
-    for (const candidate of candidates) {
-      const group = groups.get(candidate.groupKey) ?? [];
-      group.push(candidate);
-      groups.set(candidate.groupKey, group);
-    }
+  const groups = new Map<string, DiagnosticGroup>();
+  for (const isBase of [true, false]) {
+    const diagnostics = isBase ? input.baseDiagnostics : input.headDiagnostics;
+    diagnostics.forEach((diagnostic, diagnosticIndex) => {
+      const filePath = isBase
+        ? (input.renamedFiles?.[diagnostic.filePath] ?? diagnostic.filePath)
+        : diagnostic.filePath;
+      const groupKey = `${filePath}\0${diagnostic.plugin}/${diagnostic.rule}`;
+      const group = groups.get(groupKey) ?? { headIndexes: [], baseIndexes: [] };
+      (isBase ? group.baseIndexes : group.headIndexes).push(diagnosticIndex);
+      groups.set(groupKey, group);
+    });
   }
 
-  const matchedHeadIndexes = new Set<number>();
-  const matchedBaseIndexes = new Set<number>();
+  const newIndexes = new Set<number>();
+  let fixedCount = 0;
+  let crossFileMatchCount = 0;
   let ruleCountMatchCount = 0;
-  for (const [groupKey, headGroup] of headGroups) {
-    const baseGroup = baseGroups.get(groupKey);
-    if (!baseGroup) continue;
-    for (const requireExactMatch of [true, false]) {
-      const rankHead = (head: DiagnosticMatchCandidate): RankedDiagnosticMatch | null => {
-        let bestMatch: RankedDiagnosticMatch | null = null;
-        for (const base of baseGroup) {
-          if (matchedBaseIndexes.has(base.diagnosticIndex)) continue;
-          const rank = rankDiagnosticMatch(head, base, input.mapBaseLine);
-          if (requireExactMatch && (rank.fingerprintMatch === 0 || head.message !== base.message)) {
-            continue;
-          }
-          if (bestMatch === null || compareMatchRanks(rank, bestMatch) < 0) bestMatch = rank;
-        }
-        return bestMatch;
+  for (const group of groups.values()) {
+    const matchedCount = Math.min(group.headIndexes.length, group.baseIndexes.length);
+    fixedCount += group.baseIndexes.length - matchedCount;
+    crossFileMatchCount += Math.min(
+      matchedCount,
+      group.baseIndexes.filter((diagnosticIndex) =>
+        Boolean(input.renamedFiles?.[input.baseDiagnostics[diagnosticIndex].filePath]),
+      ).length,
+    );
+    if (group.headIndexes.length <= group.baseIndexes.length) {
+      ruleCountMatchCount += matchedCount;
+      continue;
+    }
+    if (group.baseIndexes.length === 0) {
+      for (const diagnosticIndex of group.headIndexes) newIndexes.add(diagnosticIndex);
+      continue;
+    }
+
+    const headCandidates = buildMatchCandidates(
+      input.headDiagnostics,
+      group.headIndexes,
+      input.readHeadEvidence,
+      input.readHeadLine,
+      (diagnostic) => diagnostic.line,
+    );
+    const baseCandidates = buildMatchCandidates(
+      input.baseDiagnostics,
+      group.baseIndexes,
+      input.readBaseEvidence,
+      input.readBaseLine,
+      (diagnostic) =>
+        input.mapBaseLine?.(
+          input.renamedFiles?.[diagnostic.filePath] ?? diagnostic.filePath,
+          diagnostic.line,
+        ) ?? diagnostic.line,
+    ).sort((left, right) => left.line - right.line);
+    const unmatchedHeads = new Map(
+      headCandidates.map((candidate) => [candidate.diagnosticIndex, candidate]),
+    );
+    const unmatchedBases = new Set(baseCandidates);
+    for (const matchKind of ["exact", "fingerprint", "message"]) {
+      const headBuckets = new Map<string, DiagnosticMatchCandidate[]>();
+      const keyFor = (candidate: DiagnosticMatchCandidate): string | null => {
+        if (matchKind === "message") return candidate.message;
+        if (matchKind === "fingerprint") return candidate.fingerprint;
+        if (candidate.fingerprint === null) return null;
+        return JSON.stringify([candidate.fingerprint, candidate.message]);
       };
-      const rankedHeads = headGroup
-        .filter((head) => !matchedHeadIndexes.has(head.diagnosticIndex))
-        .flatMap((head) => {
-          const rank = rankHead(head);
-          return rank === null ? [] : [rank];
-        })
-        .sort(compareMatchRanks);
-      while (rankedHeads.length > 0) {
-        const match = rankedHeads.shift();
-        if (!match) break;
-        if (matchedBaseIndexes.has(match.base.diagnosticIndex)) {
-          const updatedMatch = rankHead(match.head);
-          if (updatedMatch) {
-            rankedHeads.push(updatedMatch);
-            rankedHeads.sort(compareMatchRanks);
+      for (const head of unmatchedHeads.values()) {
+        const key = keyFor(head);
+        if (key === null) continue;
+        const bucket = headBuckets.get(key) ?? [];
+        bucket.push(head);
+        headBuckets.set(key, bucket);
+      }
+      for (const base of unmatchedBases) {
+        const key = keyFor(base);
+        const bucket = key === null ? undefined : headBuckets.get(key);
+        if (!bucket?.length) continue;
+        let closestIndex = 0;
+        for (let index = 1; index < bucket.length; index += 1) {
+          if (
+            Math.abs(bucket[index].line - base.line) <
+            Math.abs(bucket[closestIndex].line - base.line)
+          ) {
+            closestIndex = index;
           }
-          continue;
         }
-        matchedHeadIndexes.add(match.head.diagnosticIndex);
-        matchedBaseIndexes.add(match.base.diagnosticIndex);
-        if (!requireExactMatch) ruleCountMatchCount += 1;
+        const [head] = bucket.splice(closestIndex, 1);
+        unmatchedHeads.delete(head.diagnosticIndex);
+        unmatchedBases.delete(base);
+        if (matchKind !== "exact") ruleCountMatchCount += 1;
       }
     }
+    for (const base of unmatchedBases) {
+      let bestHead: DiagnosticMatchCandidate | undefined;
+      let bestRank: DiagnosticMatchRank | undefined;
+      for (const head of unmatchedHeads.values()) {
+        const rank = rankDiagnosticMatch(head, base);
+        if (!bestRank || compareMatchRanks(rank, bestRank) < 0) {
+          bestHead = head;
+          bestRank = rank;
+        }
+      }
+      if (bestHead) {
+        unmatchedHeads.delete(bestHead.diagnosticIndex);
+        ruleCountMatchCount += 1;
+      }
+    }
+    for (const diagnosticIndex of unmatchedHeads.keys()) newIndexes.add(diagnosticIndex);
   }
 
   return {
-    newDiagnostics: input.headDiagnostics.filter(
-      (_diagnostic, diagnosticIndex) => !matchedHeadIndexes.has(diagnosticIndex),
-    ),
-    fixedCount: input.baseDiagnostics.length - matchedBaseIndexes.size,
-    crossFileMatchCount: [...matchedBaseIndexes].filter((diagnosticIndex) =>
-      Boolean(input.renamedFiles?.[input.baseDiagnostics[diagnosticIndex].filePath]),
-    ).length,
+    newDiagnostics: input.headDiagnostics.filter((_diagnostic, index) => newIndexes.has(index)),
+    fixedCount,
+    crossFileMatchCount,
     ruleCountMatchCount,
   };
 };

@@ -4,6 +4,7 @@ import type { ProjectInfo } from "./project-info.js";
 import type { ScoreResult } from "./score.js";
 
 export interface InspectResult {
+  sourceFilterConfigHash?: string;
   diagnostics: Diagnostic[];
   score: ScoreResult | null;
   skippedChecks: string[];
@@ -158,6 +159,7 @@ export interface InspectOptions {
   baselineReport?: {
     file: string;
     sourceRevision?: string;
+    sourceFilterConfigHash?: string;
     diagnostics: ReadonlyArray<Diagnostic>;
     renamedFiles?: Readonly<Record<string, string>>;
   };
@@ -345,6 +347,7 @@ export interface JsonReportDiagnosticV3 extends Diagnostic {
 }
 
 export interface JsonReportProjectEntryV3 {
+  sourceFilterConfigHash?: string;
   directory: string;
   packageRoot: string;
   framework: ProjectInfo["framework"];

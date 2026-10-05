@@ -21,6 +21,8 @@ import {
   warmOxlintWorkerPool,
   yieldToEventLoop,
 } from "@react-doctor/core";
+import { CliInputError } from "./cli/utils/cli-input-error.js";
+import { computeSourceFilterConfigHash } from "./cli/utils/compute-source-filter-config-hash.js";
 import { activeScanAbortRegistry } from "./cli/utils/active-scan-abort-registry.js";
 import { applyObservability } from "./cli/utils/apply-observability.js";
 import { buildRuntimeLayers } from "./cli/utils/build-runtime-layers.js";
@@ -125,6 +127,21 @@ const inspectWithOxlintRuntime = async (
     userConfig,
   );
 
+  const sourceFilterConfigHash = computeSourceFilterConfigHash({
+    userConfig,
+    respectInlineDisables: options.respectInlineDisables,
+  });
+  if (
+    options.baselineReport &&
+    (options.baselineReport.sourceFilterConfigHash !== undefined ||
+      options.baselineReport.diagnostics.length > 0) &&
+    options.baselineReport.sourceFilterConfigHash !== sourceFilterConfigHash
+  ) {
+    throw new CliInputError(
+      "The baseline uses different or unknown source-dependent filters. Regenerate the base --json report with the current textComponents, rawTextWrapperComponents, and respectInlineDisables settings, or use --scope changed --base <ref>.",
+    );
+  }
+
   // HACK: spinner.ts still has module-level silent state for imperative CLI
   // helpers. Concurrent batch members never touch the shared flag — overlapping
   // save/restore pairs would race — so the pool owner (the CLI) silences
@@ -172,7 +189,7 @@ const inspectWithOxlintRuntime = async (
     // link the crash before the process exits. Concurrent batch members never
     // wrote this state, so they have nothing to clear.
     if (!isConcurrentScan) resetSentryRunState();
-    return result;
+    return { ...result, sourceFilterConfigHash };
   } finally {
     if (ownsSpinnerSilence) setSpinnerSilent(wasSpinnerSilent);
   }

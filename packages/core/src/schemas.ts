@@ -143,6 +143,7 @@ export class JsonReportProjectEntryV3 extends Schema.Class<JsonReportProjectEntr
 )({
   directory: Schema.String,
   packageRoot: Schema.String,
+  sourceFilterConfigHash: Schema.optional(Schema.String),
   framework: Framework,
   project: Schema.Unknown,
   diagnostics: Schema.Array(JsonReportDiagnosticV3),

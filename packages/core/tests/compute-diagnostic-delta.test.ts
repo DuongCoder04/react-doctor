@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vite-plus/test";
+import { describe, expect, it, vi } from "vite-plus/test";
 import { computeDiagnosticDelta, DIAGNOSTIC_DELTA_IDENTITY } from "@react-doctor/core";
 import type { Diagnostic } from "@react-doctor/core";
 
@@ -22,6 +22,54 @@ const lineReaderFrom =
     lines[`${filePath}:${line}`] ?? null;
 
 describe("computeDiagnosticDelta", () => {
+  it("skips evidence and location matching when a group cannot add findings", () => {
+    const baseDiagnostics = Array.from({ length: 800 }, (_, index) =>
+      makeDiagnostic({ line: index + 1 }),
+    );
+    const readLine = vi.fn(() => null);
+    const readEvidence = vi.fn(() => null);
+    const mapBaseLine = vi.fn((_filePath: string, line: number) => line);
+    for (const headCount of [800, 400, 0]) {
+      const delta = computeDiagnosticDelta({
+        baseDiagnostics,
+        headDiagnostics: baseDiagnostics.slice(0, headCount),
+        readHeadLine: readLine,
+        readBaseLine: readLine,
+        readHeadEvidence: readEvidence,
+        readBaseEvidence: readEvidence,
+        mapBaseLine,
+      });
+      expect(delta.newDiagnostics).toEqual([]);
+      expect(delta.fixedCount).toBe(800 - headCount);
+    }
+    expect(readLine).not.toHaveBeenCalled();
+    expect(readEvidence).not.toHaveBeenCalled();
+    expect(mapBaseLine).not.toHaveBeenCalled();
+  });
+
+  it("maps each base location once when selecting an added duplicate", () => {
+    const baseDiagnostics = Array.from({ length: 800 }, (_, index) =>
+      makeDiagnostic({ line: index + 1, fingerprint: "same" }),
+    );
+    const added = makeDiagnostic({ line: 1000, fingerprint: "same" });
+    const mapBaseLine = vi.fn((_filePath: string, line: number) => line + 10);
+    const delta = computeDiagnosticDelta({
+      baseDiagnostics,
+      headDiagnostics: [
+        added,
+        ...baseDiagnostics.map((diagnostic) => ({
+          ...diagnostic,
+          line: diagnostic.line + 10,
+        })),
+      ],
+      readHeadLine: () => null,
+      readBaseLine: () => null,
+      mapBaseLine,
+    });
+    expect(delta.newDiagnostics).toEqual([added]);
+    expect(mapBaseLine).toHaveBeenCalledTimes(baseDiagnostics.length);
+  });
+
   it("uses a detector identity instead of changed source or summary text", () => {
     const baseDiagnostic = makeDiagnostic({ message: "2 copies repeat about 10 lines" });
     const headDiagnostic = makeDiagnostic({ message: "2 copies repeat about 14 lines" });
@@ -108,6 +156,26 @@ describe("computeDiagnosticDelta", () => {
       readHeadLine: () => null,
       readBaseLine: () => null,
       mapBaseLine: (_filePath, line) => line + 20,
+    });
+    expect(delta.newDiagnostics).toEqual([added]);
+  });
+
+  it("retains a stable fingerprint when its message changes and a new finding uses the old message", () => {
+    const original = makeDiagnostic({
+      fingerprint: "original",
+      message: "Missing dependency: value",
+    });
+    const edited = makeDiagnostic({
+      fingerprint: "original",
+      message: "Missing dependencies: value, other",
+      line: 20,
+    });
+    const added = makeDiagnostic({ fingerprint: "added", message: original.message });
+    const delta = computeDiagnosticDelta({
+      baseDiagnostics: [original],
+      headDiagnostics: [added, edited],
+      readHeadLine: () => null,
+      readBaseLine: () => null,
     });
     expect(delta.newDiagnostics).toEqual([added]);
   });

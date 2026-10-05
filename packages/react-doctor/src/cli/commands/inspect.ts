@@ -153,6 +153,13 @@ const buildProjectInspectOptions = ({
 }: BuildProjectInspectOptionsInput): ReactDoctorInspectOptions => {
   const scanDirectory = projectScan.directory;
   const savedBaseline = context.savedBaseline;
+  const baselineProject = savedBaseline?.projects.find(
+    (project) =>
+      path.resolve(
+        context.resolvedDirectory,
+        path.relative(savedBaseline.directory, project.directory),
+      ) === scanDirectory,
+  );
   const baselinePaths = projectScanPlan.includePaths
     ? new Set([
         ...projectScanPlan.includePaths,
@@ -181,28 +188,28 @@ const buildProjectInspectOptions = ({
       savedBaseline && context.flags.baseline
         ? {
             file: context.flags.baseline,
-            sourceRevision:
-              savedBaseline.schemaVersion === 3 ? savedBaseline.sourceRevision : undefined,
-            diagnostics: savedBaseline.projects.flatMap((project) => {
-              const projectRelativePath = path.relative(savedBaseline.directory, project.directory);
-              if (path.resolve(context.resolvedDirectory, projectRelativePath) !== scanDirectory)
-                return [];
-              return project.diagnostics.flatMap((diagnostic) => {
-                const filePath = path
-                  .relative(project.directory, path.resolve(project.directory, diagnostic.filePath))
-                  .replace(/\\/g, "/");
-                if (baselinePaths && !baselinePaths.has(filePath)) return [];
-                return [
-                  {
-                    ...diagnostic,
-                    relatedLocations: diagnostic.relatedLocations
-                      ? [...diagnostic.relatedLocations]
-                      : undefined,
-                    filePath,
-                  },
-                ];
-              });
-            }),
+            sourceFilterConfigHash: baselineProject?.sourceFilterConfigHash,
+            sourceRevision: savedBaseline.sourceRevision,
+            diagnostics: baselineProject
+              ? baselineProject.diagnostics.flatMap((diagnostic) => {
+                  const filePath = path
+                    .relative(
+                      baselineProject.directory,
+                      path.resolve(baselineProject.directory, diagnostic.filePath),
+                    )
+                    .replace(/\\/g, "/");
+                  if (baselinePaths && !baselinePaths.has(filePath)) return [];
+                  return [
+                    {
+                      ...diagnostic,
+                      relatedLocations: diagnostic.relatedLocations
+                        ? [...diagnostic.relatedLocations]
+                        : undefined,
+                      filePath,
+                    },
+                  ];
+                })
+              : [],
             renamedFiles: Object.fromEntries(
               Object.entries(context.baselineDiffPlan?.renamedFiles ?? {}).map(
                 ([basePath, headPath]) => [
