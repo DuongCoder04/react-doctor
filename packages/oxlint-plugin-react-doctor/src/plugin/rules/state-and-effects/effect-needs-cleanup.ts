@@ -5638,6 +5638,7 @@ const hasGuardedDeferredCleanup = (
     (handleAssignment) =>
       findTransparentExpressionRoot(handleAssignment.identifier).parent === usageAssignment,
   );
+  const timerArguments = usage.node.arguments;
   const hasUnsafeHandleAssignment = handleAssignments.some((handleAssignment) => {
     const assignmentTarget = findTransparentExpressionRoot(handleAssignment.identifier);
     const assignment = assignmentTarget.parent;
@@ -5656,6 +5657,15 @@ const hasGuardedDeferredCleanup = (
         assignedValue.name === "undefined" &&
         context.scopes.isGlobalReference(assignedValue));
     if (!isNullishReset) return true;
+    const assignmentFunction = findEnclosingFunction(assignment);
+    const isResetInOwnCallback =
+      assignmentFunction &&
+      isFunctionLike(assignmentFunction) &&
+      timerArguments.some((argument) => {
+        const callback = stripParenExpression(argument);
+        return isFunctionLike(callback) && callback === assignmentFunction;
+      });
+    if (isResetInOwnCallback) return false;
     const cleanupFunction = findEnclosingFunction(assignment);
     const globalReleaseProofs = cleanupFunction
       ? globalReleaseProofsByCleanup.get(cleanupFunction)
