@@ -9,6 +9,7 @@ const ACTION_RELEASE_FILES = [
   "scripts/normalize-changed-files.mjs",
   "scripts/render-github-action-comment.mjs",
   "scripts/resolve-package-spec.mjs",
+  "scripts/detect-package-manager.mjs",
 ];
 
 const COMMENT_MARKER = "<!-- react-doctor:action-version -->";

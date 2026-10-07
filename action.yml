@@ -36,7 +36,7 @@ inputs:
     description: "Node.js version to use"
     default: "24"
   version:
-    description: "react-doctor npm version or package spec to run"
+    description: "react-doctor npm version or package spec to run. The default latest uses an installed project dependency when available; other values always override it."
     default: "latest"
 
 outputs:
@@ -67,10 +67,17 @@ runs:
         node-version: ${{ inputs.node-version }}
         package-manager-cache: false
 
+    - id: project-toolchain
+      shell: bash
+      env:
+        INPUT_DIRECTORY: ${{ inputs.directory }}
+      run: node "$GITHUB_ACTION_PATH/scripts/detect-package-manager.mjs" "$INPUT_DIRECTORY"
+
     # Resolve the version to a concrete published one so the install cache key is
     # stable even for `version: latest`. A local-path spec (this repo's self-test)
     # is reported non-cacheable and falls through to the npx path below.
     - id: resolve-version
+      if: ${{ inputs.version != 'latest' || steps.project-toolchain.outputs.has-installed != 'true' }}
       shell: bash
       env:
         INPUT_VERSION: ${{ inputs.version }}
@@ -251,6 +258,8 @@ runs:
         # cacheable spec installs into (and reruns from) the cached toolchain
         # prefix; a non-cacheable local-path spec falls through to npx.
         PACKAGE_SPEC: ${{ steps.resolve-version.outputs.spec }}
+        PACKAGE_MANAGER: ${{ steps.project-toolchain.outputs.package-manager }}
+        USE_INSTALLED: ${{ inputs.version == 'latest' && steps.project-toolchain.outputs.has-installed == 'true' }}
         CACHEABLE: ${{ steps.resolve-version.outputs.cacheable }}
         CHANGED_FILES_FROM: ${{ steps.base.outputs.path || steps.pr-files.outputs.path }}
         # Forwarded so baseline mode reads base content against a fetched SHA
@@ -305,6 +314,11 @@ runs:
           FLAGS+=("--changed-files-from" "$CHANGED_FILES_FROM")
         fi
 
+        INPUT_DIRECTORY="$(cd "$INPUT_DIRECTORY" && pwd)"
+        case "$PACKAGE_SPEC" in
+          ./* | ../*) PACKAGE_SPEC="$PWD/$PACKAGE_SPEC" ;;
+        esac
+
         # Install/run from a cached prefix for a published version (the common
         # path): actions/cache restored $TOOLCHAIN_DIR before this step, so a
         # cache hit skips the ~15s npm download. `--prefix` gives a deterministic,
@@ -319,7 +333,7 @@ runs:
           set +e
           if ! "$TOOLCHAIN_DIR/node_modules/.bin/react-doctor" --version >/dev/null 2>&1; then
             mkdir -p "$TOOLCHAIN_DIR"
-            npm install --prefix "$TOOLCHAIN_DIR" --no-save --no-audit --no-fund "$PACKAGE_SPEC"
+            (cd "$TOOLCHAIN_DIR" && npm install --prefix "$TOOLCHAIN_DIR" --no-save --no-audit --no-fund "$PACKAGE_SPEC")
           fi
           # Adopt the toolchain only if the bin actually RUNS, not merely
           # exists: npm treats optionalDependency failures (e.g. the oxlint
@@ -339,8 +353,36 @@ runs:
         set +e
         if [ -n "$RD_BIN" ]; then
           "$RD_BIN" "$INPUT_DIRECTORY" "${FLAGS[@]}" > "$REPORT_FILE"
+        elif [ "$USE_INSTALLED" = "true" ]; then
+          (
+            cd "$INPUT_DIRECTORY" || exit 1
+            case "$PACKAGE_MANAGER" in
+              pnpm) pnpm exec react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+              yarn) yarn exec react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+              bun) bun run react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+              *) npm exec --no -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+            esac
+          ) > "$REPORT_FILE"
         else
-          npm exec --yes --package "$PACKAGE_SPEC" -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" > "$REPORT_FILE"
+          (
+            cd "$INPUT_DIRECTORY" || exit 1
+            case "$PACKAGE_MANAGER" in
+              pnpm) pnpm dlx "$PACKAGE_SPEC" "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+              yarn)
+                if [[ "$(yarn --version)" == 1.* ]]; then
+                  cd "${RUNNER_TEMP:-/tmp}" || exit 1
+                  npm exec --yes --package "$PACKAGE_SPEC" -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}"
+                else
+                  yarn dlx "$PACKAGE_SPEC" "$INPUT_DIRECTORY" "${FLAGS[@]}"
+                fi
+                ;;
+              bun) bunx "$PACKAGE_SPEC" "$INPUT_DIRECTORY" "${FLAGS[@]}" ;;
+              *)
+                cd "${RUNNER_TEMP:-/tmp}" || exit 1
+                npm exec --yes --package "$PACKAGE_SPEC" -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}"
+                ;;
+            esac
+          ) > "$REPORT_FILE"
         fi
         SCAN_STATUS=$?
         set -e
