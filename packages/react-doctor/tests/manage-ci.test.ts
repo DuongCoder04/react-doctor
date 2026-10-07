@@ -30,6 +30,7 @@ interface TempProject {
 
 const makeTempProject = (): TempProject => {
   const root = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-manage-ci-"));
+  fs.mkdirSync(path.join(root, ".git"));
   fs.writeFileSync(path.join(root, "package.json"), JSON.stringify({ name: "fixture" }));
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 };
@@ -62,6 +63,37 @@ describe("runCiInstall", () => {
     await runCiInstall(baseOptions({ provider: "github-actions" }));
     expect(githubContent(project.root)).toContain("# with:");
     expect(githubContent(project.root)).toContain("millionco/react-doctor@v2");
+  });
+
+  it("finds an existing workflow at the repository root from a nested package", async () => {
+    const packageDirectory = path.join(project.root, "apps", "website");
+    const workflowPath = path.join(project.root, ".github", "workflows", "checks.yml");
+    const content = buildWorkflowContent("main");
+    fs.mkdirSync(packageDirectory, { recursive: true });
+    fs.writeFileSync(
+      path.join(packageDirectory, "package.json"),
+      JSON.stringify({ name: "website" }),
+    );
+    fs.mkdirSync(path.dirname(workflowPath), { recursive: true });
+    fs.writeFileSync(workflowPath, content);
+    await runCiInstall(baseOptions({ provider: "github-actions", cwd: packageDirectory }));
+    expect(fs.readFileSync(workflowPath, "utf8")).toBe(content);
+    expect(fs.existsSync(path.join(project.root, ".github/workflows/react-doctor.yml"))).toBe(
+      false,
+    );
+    expect(fs.existsSync(path.join(packageDirectory, ".github"))).toBe(false);
+    await runCiConfig(
+      baseOptions({ provider: "github-actions", cwd: packageDirectory, blocking: "error" }),
+    );
+    expect(githubActionsProvider.parseGate(fs.readFileSync(workflowPath, "utf8")).blocking).toBe(
+      "error",
+    );
+  });
+
+  it("does not install a GitHub workflow outside a repository", async () => {
+    fs.rmdirSync(path.join(project.root, ".git"));
+    await runCiInstall(baseOptions({ provider: "github-actions" }));
+    expect(fs.existsSync(path.join(project.root, ".github"))).toBe(false);
   });
 
   it("bakes a non-advisory gate into the workflow", async () => {

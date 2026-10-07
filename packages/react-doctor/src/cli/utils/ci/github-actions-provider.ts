@@ -1,6 +1,7 @@
 import * as path from "node:path";
 import * as fs from "node:fs";
 import * as YAML from "yaml";
+import { findGitRepositoryRoot } from "@react-doctor/core";
 import {
   buildWorkflowContent,
   getReactDoctorWorkflowPath,
@@ -278,7 +279,7 @@ const containsReactDoctor = (content: string): boolean => {
 // React Doctor action step — a user may have added the step to their existing
 // CI workflow instead of a dedicated `react-doctor.yml`.
 const findActionWorkflowFile = (projectRoot: string): CiWorkflowFile | null => {
-  const workflowsDir = path.join(projectRoot, ".github", "workflows");
+  const workflowsDir = path.dirname(getReactDoctorWorkflowPath(projectRoot));
   let entries: string[];
   try {
     entries = fs.readdirSync(workflowsDir).sort();
@@ -307,6 +308,9 @@ const readWorkflow = (projectRoot: string): CiWorkflowFile | null => {
 // Reports "exists" when the action is already wired up anywhere (or our
 // canonical file is present), so `ci install` never adds a second workflow.
 const scaffold = (projectRoot: string, defaultBranch: string, gate: CiGate): CiScaffoldResult => {
+  if (findGitRepositoryRoot(projectRoot) === null) {
+    return { status: "failed", path: getReactDoctorWorkflowPath(projectRoot) };
+  }
   const existing = readWorkflow(projectRoot);
   if (existing) return { status: "exists", path: existing.path };
   const workflowPath = getReactDoctorWorkflowPath(projectRoot);

@@ -5,12 +5,16 @@ import { describe, expect, it } from "vite-plus/test";
 import {
   getReactDoctorWorkflowPath,
   installReactDoctorWorkflow,
+  isReactDoctorWorkflowInstalled,
+  readReactDoctorWorkflow,
+  upgradeReactDoctorWorkflowInPlace,
 } from "../src/cli/utils/install-github-workflow.js";
 
 const installInTempDir = (
   defaultBranch?: string,
 ): { readonly content: string; readonly cleanup: () => void } => {
   const projectRoot = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-workflow-install-"));
+  fs.mkdirSync(path.join(projectRoot, ".git"));
   const result = installReactDoctorWorkflow(projectRoot, defaultBranch);
   expect(result.status).toBe("created");
   return {
@@ -49,6 +53,76 @@ describe("installReactDoctorWorkflow push trigger", () => {
       expect(content).toContain("fetch-depth: 0");
     } finally {
       cleanup();
+    }
+  });
+});
+
+describe("installReactDoctorWorkflow git root placement", () => {
+  it("installs workflow at the git root when called from a subdirectory", () => {
+    const repositoryRoot = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-git-root-"));
+    const packageDirectory = path.join(repositoryRoot, "apps", "website");
+
+    try {
+      fs.mkdirSync(path.join(repositoryRoot, ".git"));
+      fs.mkdirSync(packageDirectory, { recursive: true });
+      fs.writeFileSync(
+        path.join(packageDirectory, "package.json"),
+        JSON.stringify({ name: "website" }),
+      );
+
+      const result = installReactDoctorWorkflow(packageDirectory, "main");
+
+      expect(result.status).toBe("created");
+      expect(result.workflowPath).toBe(
+        path.join(repositoryRoot, ".github", "workflows", "react-doctor.yml"),
+      );
+      expect(fs.existsSync(result.workflowPath)).toBe(true);
+      expect(
+        fs.existsSync(path.join(packageDirectory, ".github", "workflows", "react-doctor.yml")),
+      ).toBe(false);
+    } finally {
+      fs.rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("uses a linked worktree root for installation, detection, and upgrades", () => {
+    const repositoryRoot = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-worktree-"));
+    const packageDirectory = path.join(repositoryRoot, "apps", "website");
+    try {
+      fs.writeFileSync(
+        path.join(repositoryRoot, ".git"),
+        "gitdir: /repository/.git/worktrees/linked\n",
+      );
+      fs.mkdirSync(packageDirectory, { recursive: true });
+      const result = installReactDoctorWorkflow(packageDirectory);
+      expect(result.status).toBe("created");
+      expect(result.workflowPath).toBe(
+        path.join(repositoryRoot, ".github/workflows/react-doctor.yml"),
+      );
+      expect(isReactDoctorWorkflowInstalled(packageDirectory)).toBe(true);
+      fs.writeFileSync(result.workflowPath, "custom: preserve\nuses: millionco/react-doctor@v1\n");
+      expect(installReactDoctorWorkflow(packageDirectory).status).toBe("exists");
+      expect(readReactDoctorWorkflow(packageDirectory)?.content).toContain("custom: preserve");
+      expect(upgradeReactDoctorWorkflowInPlace(packageDirectory).status).toBe("upgraded");
+      expect(fs.readFileSync(result.workflowPath, "utf8")).toBe(
+        "custom: preserve\nuses: millionco/react-doctor@v2\n",
+      );
+      expect(fs.existsSync(path.join(packageDirectory, ".github"))).toBe(false);
+    } finally {
+      fs.rmSync(repositoryRoot, { recursive: true, force: true });
+    }
+  });
+
+  it("warns when there is no git repository", () => {
+    const directoryWithoutRepository = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-no-git-"));
+
+    try {
+      const result = installReactDoctorWorkflow(directoryWithoutRepository, "main");
+
+      expect(result.status).toBe("failed");
+      expect(result.error).toBe("no-git-root");
+    } finally {
+      fs.rmSync(directoryWithoutRepository, { recursive: true, force: true });
     }
   });
 });
