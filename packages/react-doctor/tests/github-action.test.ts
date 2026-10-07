@@ -28,10 +28,10 @@ const runGit = (cwd: string, ...args: string[]): string =>
 
 const BASE_STEP_RUN_MARKER = "run: |\n";
 
-const extractBaseStepScript = (actionYaml: string): string => {
-  const baseStep = extractStep(actionYaml, "- id: base");
+const extractStepScript = (actionYaml: string, marker = "- id: base"): string => {
+  const baseStep = extractStep(actionYaml, marker);
   const runIndex = baseStep.indexOf(BASE_STEP_RUN_MARKER);
-  if (runIndex < 0) throw new Error("Missing run block on the base step");
+  if (runIndex < 0) throw new Error("Missing run block on the requested step");
   const scriptLines: string[] = [];
   for (const rawLine of baseStep.slice(runIndex + BASE_STEP_RUN_MARKER.length).split("\n")) {
     // The block scalar ends at the first line shallower than its 8-space body
@@ -256,7 +256,7 @@ describe("GitHub Action contract", () => {
             "-o",
             "pipefail",
             "-c",
-            extractBaseStepScript(readActionYaml()),
+            extractStepScript(readActionYaml()),
           ],
           {
             cwd: checkoutDirectory,
@@ -372,7 +372,7 @@ describe("GitHub Action contract", () => {
             "-o",
             "pipefail",
             "-c",
-            extractBaseStepScript(readActionYaml()),
+            extractStepScript(readActionYaml()),
           ],
           {
             cwd: checkoutDirectory,
@@ -445,7 +445,7 @@ describe("GitHub Action contract", () => {
     );
     expect(scanStep).toContain('FLAGS+=("--changed-files-from" "$CHANGED_FILES_FROM")');
     expect(scanStep).toContain(
-      'npm exec --yes --package "$PACKAGE_SPEC" -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}" > "$REPORT_FILE"',
+      'npm exec --yes --package "$PACKAGE_SPEC" -- react-doctor "$INPUT_DIRECTORY" "${FLAGS[@]}"',
     );
     // PACKAGE_SPEC is resolved once (and made cacheable) by the resolve-version
     // step and read from its output, not derived inline in the scan step.
@@ -607,4 +607,195 @@ describe("GitHub Action contract", () => {
     // Missing `statuses: write` is a soft failure, not a crash.
     expect(statusStep).toContain("core.warning");
   });
+});
+
+interface ActionInvocationCase {
+  readonly name: string;
+  readonly packageManager: string;
+  readonly useInstalled: boolean;
+  readonly expectedCommand: string;
+  readonly expectedArguments: readonly string[];
+  readonly yarnVersion?: string;
+  readonly cacheable?: boolean;
+  readonly expectedIsolatedDirectory?: boolean;
+}
+
+const actionInvocationCases: readonly ActionInvocationCase[] = [
+  {
+    name: "installed pnpm",
+    packageManager: "pnpm",
+    useInstalled: true,
+    expectedCommand: "pnpm",
+    expectedArguments: ["exec", "react-doctor"],
+  },
+  {
+    name: "installed npm",
+    packageManager: "npm",
+    useInstalled: true,
+    expectedCommand: "npm",
+    expectedArguments: ["exec", "--no", "--", "react-doctor"],
+  },
+  {
+    name: "installed Yarn",
+    packageManager: "yarn",
+    useInstalled: true,
+    expectedCommand: "yarn",
+    expectedArguments: ["exec", "react-doctor"],
+  },
+  {
+    name: "installed Bun",
+    packageManager: "bun",
+    useInstalled: true,
+    expectedCommand: "bun",
+    expectedArguments: ["run", "react-doctor"],
+  },
+  {
+    name: "pinned pnpm download",
+    packageManager: "pnpm",
+    useInstalled: false,
+    expectedCommand: "pnpm",
+    expectedArguments: ["dlx", "react-doctor@0.9.17"],
+  },
+  {
+    name: "pinned npm download",
+    packageManager: "npm",
+    useInstalled: false,
+    expectedCommand: "npm",
+    expectedArguments: ["exec", "--yes", "--package", "react-doctor@0.9.17", "--", "react-doctor"],
+    expectedIsolatedDirectory: true,
+  },
+  {
+    name: "Yarn Berry download",
+    packageManager: "yarn",
+    useInstalled: false,
+    expectedCommand: "yarn",
+    expectedArguments: ["dlx", "react-doctor@0.9.17"],
+  },
+  {
+    name: "Yarn Classic download fallback",
+    packageManager: "yarn",
+    useInstalled: false,
+    yarnVersion: "1.22.22",
+    expectedCommand: "npm",
+    expectedArguments: ["exec", "--yes", "--package", "react-doctor@0.9.17", "--", "react-doctor"],
+    expectedIsolatedDirectory: true,
+  },
+  {
+    name: "Bun download",
+    packageManager: "bun",
+    useInstalled: false,
+    expectedCommand: "bunx",
+    expectedArguments: ["react-doctor@0.9.17"],
+  },
+  {
+    name: "explicit cached version overrides an installed dependency",
+    packageManager: "pnpm",
+    useInstalled: false,
+    cacheable: true,
+    expectedCommand: "react-doctor",
+    expectedArguments: [],
+  },
+];
+
+describe("GitHub Action package manager invocation", () => {
+  it("uses detector step outputs and keeps explicit versions out of the installed path", () => {
+    const actionYaml = readActionYaml();
+    const resolveStep = extractStep(actionYaml, "- id: resolve-version");
+    const scanStep = extractStep(actionYaml, "- id: scan\n");
+    expect(resolveStep).toContain(
+      "inputs.version != 'latest' || steps.project-toolchain.outputs.has-installed != 'true'",
+    );
+    expect(scanStep).toContain(
+      "PACKAGE_MANAGER: ${{ steps.project-toolchain.outputs.package-manager }}",
+    );
+    expect(scanStep).toContain(
+      "USE_INSTALLED: ${{ inputs.version == 'latest' && steps.project-toolchain.outputs.has-installed == 'true' }}",
+    );
+    expect(scanStep).not.toContain("PACKAGE_MANAGER_INFO");
+  });
+
+  for (const testCase of actionInvocationCases) {
+    itOnPosix(testCase.name, () => {
+      const fixtureRoot = fs.realpathSync(
+        fs.mkdtempSync(path.join(os.tmpdir(), "react-doctor-action-command-")),
+      );
+      const projectDirectory = path.join(fixtureRoot, "apps", "nested project");
+      const binaryDirectory = path.join(fixtureRoot, "bin");
+      const runnerDirectory = path.join(fixtureRoot, "runner");
+      const commandLog = path.join(fixtureRoot, "commands");
+      const actionOutputs = path.join(fixtureRoot, "outputs");
+      const cachedBinaryDirectory = path.join(
+        runnerDirectory,
+        "react-doctor-toolchain",
+        "node_modules",
+        ".bin",
+      );
+      try {
+        for (const directory of [projectDirectory, binaryDirectory, cachedBinaryDirectory]) {
+          fs.mkdirSync(directory, { recursive: true });
+        }
+        const commandScript = `#!/bin/sh
+if [ "$1" = "--version" ]; then
+  printf '%s\\n' "$TEST_YARN_VERSION"
+  exit 0
+fi
+printf '%s\\n' "$(basename "$0")" "$PWD" "$@" >> "$TEST_COMMAND_LOG"
+printf '%s\\n' '{"schemaVersion":3,"ok":true}'
+`;
+        for (const command of ["npm", "pnpm", "yarn", "bun", "bunx"]) {
+          fs.writeFileSync(path.join(binaryDirectory, command), commandScript, { mode: 0o755 });
+        }
+        fs.writeFileSync(path.join(cachedBinaryDirectory, "react-doctor"), commandScript, {
+          mode: 0o755,
+        });
+        execFileSync(
+          "bash",
+          ["-e", "-o", "pipefail", "-c", extractStepScript(readActionYaml(), "- id: scan\n")],
+          {
+            cwd: fixtureRoot,
+            env: {
+              ...process.env,
+              PATH: `${binaryDirectory}${path.delimiter}${process.env.PATH}`,
+              INPUT_DIRECTORY: "apps/nested project",
+              INPUT_SCOPE: "full",
+              INPUT_PROJECT: "*",
+              INPUT_BLOCKING: "none",
+              CHANGED_FILES_FROM: "",
+              PACKAGE_MANAGER: testCase.packageManager,
+              USE_INSTALLED: String(testCase.useInstalled),
+              CACHEABLE: String(testCase.cacheable ?? false),
+              PACKAGE_SPEC: "react-doctor@0.9.17",
+              RUNNER_TEMP: runnerDirectory,
+              GITHUB_RUN_ID: "fixture",
+              GITHUB_OUTPUT: actionOutputs,
+              GITHUB_ACTION_PATH: REPOSITORY_ROOT,
+              TEST_COMMAND_LOG: commandLog,
+              TEST_YARN_VERSION: testCase.yarnVersion ?? "4.0.0",
+            },
+          },
+        );
+        const loggedArguments = fs.readFileSync(commandLog, "utf8").trim().split("\n");
+        let expectedDirectory = projectDirectory;
+        if (testCase.cacheable) expectedDirectory = fixtureRoot;
+        if (testCase.expectedIsolatedDirectory) expectedDirectory = runnerDirectory;
+        expect(loggedArguments).toEqual([
+          testCase.expectedCommand,
+          expectedDirectory,
+          ...testCase.expectedArguments,
+          projectDirectory,
+          "--json",
+          "--json-compact",
+          "--blocking",
+          "none",
+          "--project",
+          "*",
+          "--scope",
+          "full",
+        ]);
+        expect(fs.readFileSync(actionOutputs, "utf8")).toContain("exit-code=0");
+      } finally {
+        fs.rmSync(fixtureRoot, { recursive: true, force: true });
+      }
+    });
+  }
 });

@@ -1,6 +1,5 @@
-#!/usr/bin/env node
-import fs from "node:fs";
-import path from "node:path";
+import * as fs from "node:fs";
+import * as path from "node:path";
 import { pathToFileURL } from "node:url";
 
 const PACKAGE_MANAGER_LOCKFILES = [
@@ -12,86 +11,77 @@ const PACKAGE_MANAGER_LOCKFILES = [
 ];
 
 const readPackageJson = (directory) => {
-  const packageJsonPath = path.join(directory, "package.json");
   try {
-    return JSON.parse(fs.readFileSync(packageJsonPath, "utf8"));
+    return JSON.parse(fs.readFileSync(path.join(directory, "package.json"), "utf8"));
   } catch {
     return null;
   }
 };
 
-const findNearestFileDirectory = (startDirectory, fileNames) => {
-  let currentDirectory = path.resolve(startDirectory);
+const getProjectDirectories = (projectDirectory) => {
+  const directories = [];
+  let directory = path.resolve(projectDirectory);
   while (true) {
-    if (fileNames.some((fileName) => fs.existsSync(path.join(currentDirectory, fileName)))) {
-      return currentDirectory;
-    }
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) return null;
-    currentDirectory = parentDirectory;
+    directories.push(directory);
+    const parentDirectory = path.dirname(directory);
+    if (parentDirectory === directory || fs.existsSync(path.join(directory, ".git"))) break;
+    directory = parentDirectory;
   }
+  return directories;
 };
 
-const detectPackageManager = (projectRoot) => {
-  let currentDirectory = path.resolve(projectRoot);
-  while (true) {
-    const packageJson = readPackageJson(currentDirectory);
-    if (packageJson?.packageManager) {
-      const packageManagerName = packageJson.packageManager.split("@")[0];
-      if (["pnpm", "yarn", "bun", "npm"].includes(packageManagerName)) {
-        return packageManagerName;
-      }
-    }
-    const parentDirectory = path.dirname(currentDirectory);
-    if (parentDirectory === currentDirectory) break;
-    currentDirectory = parentDirectory;
+export const detectPackageManager = (projectDirectory) => {
+  const directories = getProjectDirectories(projectDirectory);
+  for (const directory of directories) {
+    const packageJson = readPackageJson(directory);
+    const declaredManager = packageJson?.packageManager;
+    const managerName =
+      typeof declaredManager === "string"
+        ? declaredManager.split("@")[0]
+        : packageJson?.devEngines?.packageManager?.name;
+    if (PACKAGE_MANAGER_LOCKFILES.some((manager) => manager.name === managerName))
+      return managerName;
   }
+  for (const directory of directories) {
+    const manager = PACKAGE_MANAGER_LOCKFILES.find(({ lockfile }) =>
+      fs.existsSync(path.join(directory, lockfile)),
+    );
+    if (manager) return manager.name;
+  }
+  return "npm";
+};
 
-  const lockfileDirectory = findNearestFileDirectory(
-    projectRoot,
-    PACKAGE_MANAGER_LOCKFILES.map((item) => item.lockfile),
+export const hasReactDoctorInstalled = (projectDirectory) => {
+  const directories = getProjectDirectories(projectDirectory);
+  const hasDependency = directories.some((directory) => {
+    const packageJson = readPackageJson(directory);
+    return Boolean(
+      packageJson?.dependencies?.["react-doctor"] || packageJson?.devDependencies?.["react-doctor"],
+    );
+  });
+  return (
+    hasDependency &&
+    directories.some(
+      (directory) =>
+        fs.existsSync(path.join(directory, "node_modules", ".bin", "react-doctor")) ||
+        fs.existsSync(path.join(directory, "node_modules", ".bin", "react-doctor.cmd")) ||
+        fs.existsSync(path.join(directory, ".pnp.cjs")),
+    )
   );
-  const matchedLockfile = PACKAGE_MANAGER_LOCKFILES.find(
-    (item) =>
-      lockfileDirectory !== null && fs.existsSync(path.join(lockfileDirectory, item.lockfile)),
-  );
-  return matchedLockfile?.name ?? "npm";
-};
-
-const hasReactDoctorInstalled = (projectRoot) => {
-  const packageJson = readPackageJson(projectRoot);
-  if (!packageJson) return false;
-  
-  const deps = packageJson.dependencies || {};
-  const devDeps = packageJson.devDependencies || {};
-  return Boolean(deps["react-doctor"] || devDeps["react-doctor"]);
-};
-
-const writeOutputs = (outputs) => {
-  const rendered = Object.entries(outputs)
-    .map(([key, value]) => `${key}=${value}`)
-    .join("\n");
-  const outputPath = process.env["GITHUB_OUTPUT"];
-  if (outputPath) {
-    fs.appendFileSync(outputPath, `${rendered}\n`);
-  } else {
-    process.stdout.write(`${rendered}\n`);
-  }
 };
 
 const main = () => {
   const projectDirectory = process.argv[2] || ".";
-  const packageManager = detectPackageManager(projectDirectory);
-  const hasInstalled = hasReactDoctorInstalled(projectDirectory);
-  
-  writeOutputs({
-    "package-manager": packageManager,
-    "has-installed": hasInstalled ? "true" : "false",
-  });
+  const outputs = {
+    "package-manager": detectPackageManager(projectDirectory),
+    "has-installed": String(hasReactDoctorInstalled(projectDirectory)),
+  };
+  const rendered =
+    Object.entries(outputs)
+      .map(([key, value]) => `${key}=${value}`)
+      .join("\n") + "\n";
+  if (process.env.GITHUB_OUTPUT) fs.appendFileSync(process.env.GITHUB_OUTPUT, rendered);
+  else process.stdout.write(rendered);
 };
 
-if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-  main();
-}
-
-export { detectPackageManager, hasReactDoctorInstalled };
+if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) main();

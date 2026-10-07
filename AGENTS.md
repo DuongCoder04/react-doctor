@@ -394,7 +394,7 @@ pnpm smoke:json-report   # validates the built CLI's JSON output against the sch
 The composite GitHub Action is **versioned independently from the npm packages**. "The action"
 is `action.yml` (repo root) plus the scripts it shells out to (`scripts/ensure-json-report.mjs`,
 `scripts/normalize-changed-files.mjs`, `scripts/render-github-action-comment.mjs`,
-`scripts/resolve-package-spec.mjs`). Treat a change to any of those files as an action release,
+`scripts/resolve-package-spec.mjs`, `scripts/detect-package-manager.mjs`). Treat a change to any of those files as an action release,
 and keep the list in sync with `ACTION_RELEASE_FILES` in
 `scripts/recommend-action-version-bump.mjs` (the release guard).
 

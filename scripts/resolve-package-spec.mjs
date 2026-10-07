@@ -1,5 +1,6 @@
 import { execFileSync } from "node:child_process";
 import fs from "node:fs";
+import { tmpdir } from "node:os";
 import { pathToFileURL } from "node:url";
 
 /**
@@ -37,6 +38,7 @@ const resolveConcreteVersion = (range) => {
   try {
     const output = execFileSync("npm", ["view", `react-doctor@${range}`, "version"], {
       encoding: "utf8",
+      cwd: tmpdir(),
     });
     // `npm view <range> version` prints one line per matching version for a
     // range; the last line is the highest match — the one npm would install.

@@ -55,6 +55,8 @@ This adds the workflow, scans every pull request, and posts a summary comment. C
 
 Set `comment-on-clean: false` in the Action inputs to create comments only when the scan finds issues. Existing comments still update after a clean scan.
 
+With the default `version: latest`, the Action uses an installed `react-doctor` dependency when available. Set another `version` value to override the installed version. Install your project dependencies before the Action to use this path.
+
 [CI docs →](https://react.doctor/ci)
 
 ### 4. Configure rules
