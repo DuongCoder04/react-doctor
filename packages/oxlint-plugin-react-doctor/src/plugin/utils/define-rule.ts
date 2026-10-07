@@ -31,7 +31,11 @@ export type RuleDefinition =
 type GenericVisitors = Record<string, unknown>;
 
 const wrapCreateForCapabilities =
-  (create: Rule["create"], requires: Rule["requires"], disabledWhen: Rule["disabledWhen"]): Rule["create"] =>
+  (
+    create: Rule["create"],
+    requires: Rule["requires"],
+    disabledWhen: Rule["disabledWhen"],
+  ): Rule["create"] =>
   (context) =>
     shouldCreateRuleVisitors(context.settings, requires, disabledWhen)
       ? create(context)

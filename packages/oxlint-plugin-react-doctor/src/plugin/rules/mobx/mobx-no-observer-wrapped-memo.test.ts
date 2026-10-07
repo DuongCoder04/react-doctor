@@ -10,7 +10,16 @@ const diagnosticsFor = (
   ],
 ): number =>
   runRule(mobxNoObserverWrappedMemo, source, {
-    settings: { "react-doctor": { capabilities } },
+    settings: {
+      "react-doctor": {
+        capabilities: [
+          "mobx:4",
+          "mobx-react-binding-observer-memo-guard",
+          "react",
+          ...capabilities,
+        ],
+      },
+    },
   }).diagnostics.length;
 
 describe("mobx-no-observer-wrapped-memo", () => {

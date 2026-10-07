@@ -19,7 +19,9 @@ import { reactRouterCspNonceConsistency } from "./security/react-router-csp-nonc
 const FRAMEWORK_ROUTE_OPTIONS = {
   filename: "/project/app/routes/dashboard.tsx",
   settings: {
-    "react-doctor": { capabilities: ["react-router-framework", "react-router:6.4", "react-router:7"] },
+    "react-doctor": {
+      capabilities: ["react-router-framework", "react-router:6.4", "react-router:7"],
+    },
   },
 };
 
@@ -246,7 +248,14 @@ describe("React Router adversarial rule contracts", () => {
       'import { useBlocker } from "react-router"; export const Form = () => { useBlocker(true); useBlocker(false); return null; };';
     const stableResult = runRule(reactRouterNoMultipleBlockers, source, {
       settings: {
-        "react-doctor": { capabilities: ["react-router:6.4", "react-router:6.7", "react-router:6.9", "react-router:6.19"] },
+        "react-doctor": {
+          capabilities: [
+            "react-router:6.4",
+            "react-router:6.7",
+            "react-router:6.9",
+            "react-router:6.19",
+          ],
+        },
       },
     });
     const earlierResult = runRule(reactRouterNoMultipleBlockers, source, {

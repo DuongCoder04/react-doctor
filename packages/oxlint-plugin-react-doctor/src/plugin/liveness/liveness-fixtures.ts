@@ -41,7 +41,9 @@ const complexReactFunctionCode = [
 ].join("\n");
 
 const reactRouterFrameworkSettings = {
-  "react-doctor": { capabilities: ["react-router-framework"] },
+  "react-doctor": {
+    capabilities: ["react-router:6.4", "react-router:7", "react-router-framework"],
+  },
 };
 
 const reactRouterFrameworkRouteFixture = {
@@ -543,7 +545,14 @@ export const livenessFixtures: Readonly<Record<string, LivenessFixture>> = {
   "mobx-no-observer-wrapped-memo": {
     code: 'import { memo } from "react";\nimport { observer } from "mobx-react-lite";\nexport const Profile = observer(memo(ProfileView));',
     settings: {
-      "react-doctor": { capabilities: ["mobx-react-lite-observer-memo-guard"] },
+      "react-doctor": {
+        capabilities: [
+          "mobx:4",
+          "react",
+          "mobx-react-binding-observer-memo-guard",
+          "mobx-react-lite-observer-memo-guard",
+        ],
+      },
     },
   },
   "mobx-reaction-disposer-discarded": {
@@ -2629,7 +2638,7 @@ export const livenessFixtures: Readonly<Record<string, LivenessFixture>> = {
   },
   "react-router-no-multiple-blockers": {
     code: 'import { useBlocker } from "react-router";\nexport const Form = () => { useBlocker(true); useBlocker(false); return <form />; };',
-    settings: { "react-doctor": { capabilities: ["react-router:6.19"] } },
+    settings: { "react-doctor": { capabilities: ["react-router:6.7", "react-router:6.19"] } },
   },
   "react-router-no-multiple-middleware-next": {
     code: "export const middleware = [async (_context, next) => { await next(); return next(); }];",
@@ -2679,7 +2688,7 @@ export const livenessFixtures: Readonly<Record<string, LivenessFixture>> = {
   },
   "react-router-return-navigation-promise-in-transition": {
     code: 'import { startTransition } from "react";\nimport { RouterProvider, useNavigate } from "react-router";\nexport const App = ({ router }) => <RouterProvider router={router} useTransitions />;\nexport const Button = () => { const navigate = useNavigate(); return <button onClick={() => startTransition(() => { navigate("/next"); })} />; };',
-    settings: { "react-doctor": { capabilities: ["react-router:7.15"] } },
+    settings: { "react-doctor": { capabilities: ["react-router:7.10", "react-router:7.15"] } },
   },
   "react-router-server-middleware-return-response": {
     code: "export const middleware = [async (_context, next) => { await next(); }];",

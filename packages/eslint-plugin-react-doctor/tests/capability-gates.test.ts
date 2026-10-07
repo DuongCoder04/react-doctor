@@ -1,12 +1,12 @@
-import { describe, expect, test } from "vitest";
-import reactDoctorPlugin from "../../src/index.js";
+import { describe, expect, test } from "vite-plus/test";
+import reactDoctorPlugin from "../src/index.js";
 
 describe("issue #1862 - ESLint adapter respects requires gates", () => {
   test("rules with requires are skipped when capabilities are not declared", () => {
     const rule = reactDoctorPlugin.rules["react-router-v8-no-react-router-dom-import"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react"],
@@ -23,7 +23,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["react-router-v8-no-react-router-dom-import"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react", "react-router:8"],
@@ -41,7 +41,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["no-unguarded-browser-global-at-module-scope"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react", "vite"],
@@ -58,7 +58,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["no-unguarded-browser-global-at-module-scope"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react", "ssr", "nextjs"],
@@ -75,7 +75,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["no-unguarded-browser-global-at-module-scope"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {},
     };
 
@@ -88,7 +88,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["react-router-v8-no-react-router-dom-import"];
     const context = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
     };
 
     const visitors = rule.create(context);
@@ -101,7 +101,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["context-provider-value-from-unmemoized-local-literal"];
     const contextWithoutCompiler = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react"],
@@ -114,7 +114,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
 
     const contextWithCompiler = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react", "react-compiler"],
@@ -130,7 +130,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
     const rule = reactDoctorPlugin.rules["no-unguarded-browser-global-in-render-or-hook-init"];
     const contextMissingRequires = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["nextjs"],
@@ -143,7 +143,7 @@ describe("issue #1862 - ESLint adapter respects requires gates", () => {
 
     const contextWithRequires = {
       report: () => {},
-      filename: "test.tsx",
+      filename: "src/example.tsx",
       settings: {
         "react-doctor": {
           capabilities: ["react", "ssr"],

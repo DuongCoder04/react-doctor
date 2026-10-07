@@ -1,4 +1,4 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test } from "vite-plus/test";
 import { shouldCreateRuleVisitors } from "../src/plugin/utils/should-create-rule-visitors.js";
 
 describe("shouldCreateRuleVisitors", () => {
