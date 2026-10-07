@@ -8,7 +8,8 @@ import { describe, expect, it } from "vite-plus/test";
 const REPOSITORY_ROOT = path.resolve(import.meta.dirname, "..", "..", "..");
 const ACTION_YAML_PATH = path.join(REPOSITORY_ROOT, "action.yml");
 
-const readActionYaml = (): string => fs.readFileSync(ACTION_YAML_PATH, "utf8");
+const readActionYaml = (): string =>
+  fs.readFileSync(ACTION_YAML_PATH, "utf8").replaceAll("\r\n", "\n");
 const normalizeWhitespace = (value: string): string => value.replace(/\s+/g, " ");
 
 // Neutral git identity + config so the fixture commits below can't hang on a
