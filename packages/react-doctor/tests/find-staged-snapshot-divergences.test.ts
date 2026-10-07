@@ -146,4 +146,33 @@ describe("findStagedSnapshotDivergences", () => {
   it("ignores an ignored configuration status entry", () => {
     expect(parseStagedSnapshotDivergences("!! .opencode/package.json\0")).toEqual([]);
   });
+
+  it("accepts staged files without false divergences when GIT_DIR is set in a linked worktree", () => {
+    const mainDirectory = createRepository();
+    const linkedDirectory = fs.mkdtempSync(path.join(os.tmpdir(), "rd-linked-"));
+    temporaryDirectories.push(linkedDirectory);
+
+    execFileSync("git", ["worktree", "add", "-b", "feature", linkedDirectory, "main"], {
+      cwd: mainDirectory,
+    });
+
+    fs.writeFileSync(
+      path.join(linkedDirectory, "src/app.tsx"),
+      "export const App = () => <div />;\n",
+    );
+    execFileSync("git", ["add", "src/app.tsx"], { cwd: linkedDirectory });
+
+    const gitDirectory = execFileSync("git", ["rev-parse", "--git-dir"], {
+      cwd: linkedDirectory,
+      encoding: "utf8",
+    }).trim();
+    const previousGitDirectory = process.env.GIT_DIR;
+    try {
+      process.env.GIT_DIR = gitDirectory;
+      expect(findStagedSnapshotDivergences(linkedDirectory)).toEqual([]);
+    } finally {
+      if (previousGitDirectory === undefined) delete process.env.GIT_DIR;
+      else process.env.GIT_DIR = previousGitDirectory;
+    }
+  });
 });
