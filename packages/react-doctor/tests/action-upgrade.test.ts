@@ -61,6 +61,7 @@ describe("workflow v1 detection + upgrade", () => {
   it("does not offer to upgrade a workflow this installer just wrote (already @v2)", () => {
     const projectRoot = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-upgrade-install-"));
     try {
+      fs.mkdirSync(path.join(projectRoot, ".git"));
       const result = installReactDoctorWorkflow(projectRoot);
       expect(result.status).toBe("created");
       const workflow = readReactDoctorWorkflow(projectRoot);

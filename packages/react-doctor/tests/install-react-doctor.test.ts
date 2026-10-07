@@ -37,7 +37,7 @@ const setupFixture = (): InstallReactDoctorFixture => {
   const root = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-install-"));
   const projectRoot = path.join(root, "project");
   const sourceDir = path.join(root, "source");
-  fs.mkdirSync(projectRoot, { recursive: true });
+  fs.mkdirSync(path.join(projectRoot, ".git"), { recursive: true });
   fs.mkdirSync(sourceDir, { recursive: true });
   return {
     projectRoot,

@@ -26,6 +26,7 @@ interface TempProject {
 
 const makeTempProject = (): TempProject => {
   const root = fs.mkdtempSync(path.join(tmpdir(), "react-doctor-ci-provider-"));
+  fs.mkdirSync(path.join(root, ".git"));
   return { root, cleanup: () => fs.rmSync(root, { recursive: true, force: true }) };
 };
 
