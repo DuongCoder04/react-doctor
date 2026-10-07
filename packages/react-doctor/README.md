@@ -53,6 +53,8 @@ npx react-doctor@latest ci install
 
 This adds the workflow, scans every pull request, and posts a summary comment. Change the gate, scan scope, and comments anytime with `react-doctor ci config`, and bump the action with `react-doctor ci upgrade`. GitHub Actions is fully supported; GitLab CI gets a gate-only scaffold.
 
+Set `comment-on-clean: false` in the Action inputs to create comments only when the scan finds issues. Existing comments still update after a clean scan.
+
 [CI docs →](https://react.doctor/ci)
 
 ### 4. Configure rules
@@ -95,7 +97,7 @@ URLs, source paths, and React profiling details. Treat it as sensitive applicati
 
 `--scope changed --base <ref>` reports only new findings in files touched by the diff. It scans those files at the base and in the current tree. Uncommitted changes use `HEAD` when the base is the current branch.
 
-A match uses the rule ID, file path (following Git renames), diagnostic message, and a fingerprint of the flagged source span with whitespace normalized. Line and column numbers do not affect the match. Each base finding matches at most one current finding: two matching findings at base and three now produce one new finding. Changes elsewhere in a function do not change a finding's fingerprint. Changed flagged code or a changed message can produce a new finding.
+Findings are grouped by file path (following Git renames) and rule ID. Only the increase in each group's finding count is new: two findings at base and three now produce one new finding; two at base and two now produce none. Formatting, variable renames, edits inside flagged code, and line shifts do not create new findings when the count stays the same. Groups with no count increase need no location matching. When the count increases, exact fingerprint and message matches are paired first. Message similarity and line distance adjusted for Git diff shifts then select the most likely added findings. This is a count gate: fixing one issue and adding another under the same rule in the same file produces no increase. Current rule, severity, tag, and ignore settings apply before matching.
 
 New files have no base findings. Add `--include-untracked` to scan untracked files too. Deleted files and removed findings are not reported. `--blocking`, the exit code, and summary counts use only the unmatched current findings. The score still describes the current scan.
 
@@ -109,9 +111,9 @@ react-doctor --baseline base-report.json --blocking warning
 react-doctor --scope changed --baseline base-report.json --blocking warning
 ```
 
-`--baseline` uses the same matching rules and skips the base scan. Use the same React Doctor version, rules, and scan options for both scans. The saved report must be a complete scan with fingerprints, not a previous comparison result. Regenerate older reports that lack fingerprints. Without Git, a saved report still works; rename matching requires Git history for the report's `sourceRevision`. With `--scope changed`, Git limits the scan to changed files when available; otherwise the full current tree is compared.
+`--baseline` uses the same matching rules and skips the base scan. Use the same React Doctor version, rules, and scan options for both scans. The saved report must be a complete scan with fingerprints, not a previous comparison result. Saved reports record each project's source-dependent filter settings (`textComponents`, `rawTextWrapperComponents`, and `respectInlineDisables`). A mismatch requires a new base report with the current settings, or a Git comparison. Reports cannot recover findings that the original scan suppressed. Regenerate older reports that lack fingerprints or filter settings. Without Git, a saved report still works; rename matching requires Git history for the report's `sourceRevision`. With `--scope changed`, Git limits the scan to changed files when available; otherwise the full current tree is compared.
 
-JSON reports keep schema version 3 and add optional diagnostic `fingerprint` and report `sourceRevision` fields. The `baseline` block records `source` (`"base"` or `"baseline"`), `baseRef`, `baselineFile` for saved reports, and `matchedCount`. `newCount` equals the summary finding count.
+JSON reports keep schema version 3 and add optional diagnostic `fingerprint`, report `sourceRevision`, and per-project `sourceFilterConfigHash` fields. The `baseline` block records `source` (`"base"` or `"baseline"`), `baseRef`, `baselineFile` for saved reports, and `matchedCount`. `newCount` equals the summary finding count.
 
 ## Telemetry
 

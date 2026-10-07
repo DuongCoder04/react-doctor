@@ -1,9 +1,9 @@
 import fs from "node:fs";
 import * as Schema from "effect/Schema";
-import { JsonReport } from "@react-doctor/core/schemas";
+import { JsonReport, type JsonReportV3 } from "@react-doctor/core/schemas";
 import { CliInputError } from "./cli-input-error.js";
 
-export const readBaselineReport = (file: string): JsonReport => {
+export const readBaselineReport = (file: string): JsonReportV3 => {
   try {
     const report = Schema.decodeUnknownSync(JsonReport)(JSON.parse(fs.readFileSync(file, "utf-8")));
     if (
@@ -22,6 +22,14 @@ export const readBaselineReport = (file: string): JsonReport => {
     ) {
       throw new Error(
         "Use a complete, non-comparison --json report from the current version, with diagnostic fingerprints.",
+      );
+    }
+    if (
+      report.schemaVersion !== 3 ||
+      report.projects.some((project) => !project.sourceFilterConfigHash)
+    ) {
+      throw new Error(
+        "Regenerate the base --json report with the current version to record its source-dependent filter settings.",
       );
     }
     return report;

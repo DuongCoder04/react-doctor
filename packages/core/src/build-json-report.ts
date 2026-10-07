@@ -108,6 +108,9 @@ export const buildJsonReport = (input: BuildJsonReportInput): JsonReportV3 => {
     return {
       directory,
       packageRoot: result.project.rootDirectory,
+      ...(result.sourceFilterConfigHash
+        ? { sourceFilterConfigHash: result.sourceFilterConfigHash }
+        : {}),
       framework: result.project.framework,
       project: result.project,
       diagnostics: result.diagnostics.map((diagnostic) =>
