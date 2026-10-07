@@ -467,6 +467,7 @@ describe("buildRunEventAttributes", () => {
         fixedCount: 3,
         baseTotalCount: 7,
         crossFileMatchCount: 2,
+        ruleCountMatchCount: 4,
       },
     });
     const attributes = buildRunEventAttributes(baseInput({ result, mode: "baseline" }));
@@ -474,6 +475,7 @@ describe("buildRunEventAttributes", () => {
     expect(attributes["baseline.fixed"]).toBe(3);
     expect(attributes["baseline.baseTotal"]).toBe(7);
     expect(attributes["baseline.crossFileMatches"]).toBe(2);
+    expect(attributes["baseline.ruleCountMatches"]).toBe(4);
     expect(attributes["baseline.degraded"]).toBe(false);
   });
 
@@ -497,6 +499,16 @@ describe("buildRunEventAttributes", () => {
     expect(attributes["action.versionPin"]).toBe("latest");
     // `comment` env not set -> dropped, never coerced to a value.
     expect(attributes["action.comment"]).toBeUndefined();
+    expect(attributes["action.commentOnClean"]).toBeUndefined();
+
+    process.env[ACTION_INPUT_ENVIRONMENT_VARIABLES.commentOnClean] = "false";
+    expect(
+      buildRunEventAttributes(baseInput({ result: buildResult() }))["action.commentOnClean"],
+    ).toBe(false);
+    process.env[ACTION_INPUT_ENVIRONMENT_VARIABLES.commentOnClean] = "true";
+    expect(
+      buildRunEventAttributes(baseInput({ result: buildResult() }))["action.commentOnClean"],
+    ).toBe(true);
 
     process.env[ACTION_INPUT_ENVIRONMENT_VARIABLES.version] = "1.2.3";
     expect(buildRunEventAttributes(baseInput({ result: buildResult() }))["action.versionPin"]).toBe(

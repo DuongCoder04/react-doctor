@@ -443,6 +443,8 @@ const buildOutcomeAttributes = (input: RunEventInput): RunEventAttributes => {
         fixed: result.baselineDelta.fixedCount,
         baseTotal: result.baselineDelta.baseTotalCount,
         crossFileMatches: result.baselineDelta.crossFileMatchCount,
+        source: result.baselineDelta.source ?? "base",
+        ruleCountMatches: result.baselineDelta.ruleCountMatchCount ?? 0,
         degraded: false,
       }),
     );
@@ -462,6 +464,7 @@ const buildActionAttributes = (): RunEventAttributes => {
     // is already captured as `outcome.blocking` (resolveTelemetryBlocking
     // prefers it).
     comment: readEnvBoolean(ACTION_INPUT_ENVIRONMENT_VARIABLES.comment),
+    commentOnClean: readEnvBoolean(ACTION_INPUT_ENVIRONMENT_VARIABLES.commentOnClean),
     reviewComments: readEnvBoolean(ACTION_INPUT_ENVIRONMENT_VARIABLES.reviewComments),
     versionPin: resolveVersionPin(process.env[ACTION_INPUT_ENVIRONMENT_VARIABLES.version]),
   });
