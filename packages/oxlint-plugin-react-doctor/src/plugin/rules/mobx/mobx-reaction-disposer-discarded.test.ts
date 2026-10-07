@@ -4,7 +4,7 @@ import { mobxReactionDisposerDiscarded } from "./mobx-reaction-disposer-discarde
 
 const diagnosticsFor = (source: string, capabilities: ReadonlyArray<string> = []): number =>
   runRule(mobxReactionDisposerDiscarded, source, {
-    settings: { "react-doctor": { capabilities } },
+    settings: { "react-doctor": { capabilities: ["mobx:4", ...capabilities] } },
   }).diagnostics.length;
 
 describe("mobx-reaction-disposer-discarded", () => {

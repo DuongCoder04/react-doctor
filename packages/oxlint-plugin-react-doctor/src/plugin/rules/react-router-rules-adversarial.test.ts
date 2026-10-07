@@ -18,7 +18,11 @@ import { reactRouterCspNonceConsistency } from "./security/react-router-csp-nonc
 
 const FRAMEWORK_ROUTE_OPTIONS = {
   filename: "/project/app/routes/dashboard.tsx",
-  settings: { "react-doctor": { capabilities: ["react-router-framework"] } },
+  settings: {
+    "react-doctor": {
+      capabilities: ["react-router-framework", "react-router:6.4", "react-router:7"],
+    },
+  },
 };
 
 const FRAMEWORK_SERVER_ENTRY_OPTIONS = {
@@ -243,10 +247,19 @@ describe("React Router adversarial rule contracts", () => {
     const source =
       'import { useBlocker } from "react-router"; export const Form = () => { useBlocker(true); useBlocker(false); return null; };';
     const stableResult = runRule(reactRouterNoMultipleBlockers, source, {
-      settings: { "react-doctor": { capabilities: ["react-router:6.19"] } },
+      settings: {
+        "react-doctor": {
+          capabilities: [
+            "react-router:6.4",
+            "react-router:6.7",
+            "react-router:6.9",
+            "react-router:6.19",
+          ],
+        },
+      },
     });
     const earlierResult = runRule(reactRouterNoMultipleBlockers, source, {
-      settings: { "react-doctor": { capabilities: ["react-router:6.7"] } },
+      settings: { "react-doctor": { capabilities: ["react-router:6.4", "react-router:6.7"] } },
     });
     expect(stableResult.diagnostics).toHaveLength(1);
     expect(earlierResult.diagnostics).toEqual([]);

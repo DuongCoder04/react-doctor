@@ -43,12 +43,20 @@ interface SafeRuleCase {
 
 const REACT_ROUTER_FRAMEWORK_ROUTE_OPTIONS = {
   filename: "/project/app/routes/dashboard.tsx",
-  settings: { "react-doctor": { capabilities: ["react-router-framework"] } },
+  settings: {
+    "react-doctor": {
+      capabilities: ["react-router-framework", "react-router:6.4", "react-router:7"],
+    },
+  },
 };
 
 const REACT_ROUTER_FRAMEWORK_SERVER_ENTRY_OPTIONS = {
   filename: "/project/app/entry.server.tsx",
-  settings: { "react-doctor": { capabilities: ["react-router-framework"] } },
+  settings: {
+    "react-doctor": {
+      capabilities: ["react-router-framework", "react-router:6.4", "react-router:7"],
+    },
+  },
 };
 
 const safeRuleCases: SafeRuleCase[] = [
@@ -603,7 +611,7 @@ describe("React Router rule regressions", () => {
       {
         filename: "/project/app/root.tsx",
         settings: {
-          "react-doctor": { capabilities: ["react-router-framework"] },
+          "react-doctor": { capabilities: ["react-router-framework", "react-router:6.4"] },
         },
       },
     );
@@ -878,7 +886,21 @@ describe("React Router rule regressions", () => {
     const result = runRule(
       reactRouterReturnNavigationPromiseInTransition,
       'import { startTransition } from "react"; import { RouterProvider, useNavigate } from "react-router"; export const App = ({ router }) => <RouterProvider router={router} useTransitions />; export const Button = () => { const navigate = useNavigate(); return <button onClick={() => startTransition(() => { navigate("/next"); })} />; };',
-      { settings: { "react-doctor": { capabilities: ["react-router:7.15"] } } },
+      {
+        settings: {
+          "react-doctor": {
+            capabilities: [
+              "react-router:6.4",
+              "react-router:6.7",
+              "react-router:6.9",
+              "react-router:6.19",
+              "react-router:7",
+              "react-router:7.10",
+              "react-router:7.15",
+            ],
+          },
+        },
+      },
     );
     expect(result.parseErrors).toEqual([]);
     expect(result.diagnostics).toHaveLength(1);
@@ -888,7 +910,21 @@ describe("React Router rule regressions", () => {
     const result = runRule(
       reactRouterReturnNavigationPromiseInTransition,
       'import { startTransition } from "react"; import { RouterProvider, useNavigate } from "react-router"; export const App = ({ router }) => <RouterProvider router={router} useTransitions />; export const Button = () => { const navigate = useNavigate(); return <button onClick={() => startTransition(() => { void navigate("/next"); })} />; };',
-      { settings: { "react-doctor": { capabilities: ["react-router:7.15"] } } },
+      {
+        settings: {
+          "react-doctor": {
+            capabilities: [
+              "react-router:6.4",
+              "react-router:6.7",
+              "react-router:6.9",
+              "react-router:6.19",
+              "react-router:7",
+              "react-router:7.10",
+              "react-router:7.15",
+            ],
+          },
+        },
+      },
     );
     expect(result.parseErrors).toEqual([]);
     expect(result.diagnostics).toHaveLength(1);
