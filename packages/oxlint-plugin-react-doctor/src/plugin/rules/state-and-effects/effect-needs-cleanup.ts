@@ -5205,13 +5205,23 @@ const hasOnlySafeHandleStorageAssignments = (
         doesReleaseCallMatchUsage(releaseCall, usage, context),
       );
     }
-    const isNullishReset =
-      (isNodeOfType(assignedValue, "Literal") && assignedValue.value === null) ||
+    const isEmptyHandleReset =
+      (isNodeOfType(assignedValue, "Literal") &&
+        (assignedValue.value === null ||
+          (usage.registrationVerbName === "requestAnimationFrame" && assignedValue.value === 0))) ||
       (isNodeOfType(assignedValue, "Identifier") &&
         assignedValue.name === "undefined" &&
         context.scopes.isGlobalReference(assignedValue));
-    if (!isNullishReset || !assignmentOwner || !isFunctionLike(assignmentOwner)) return false;
-    if (isTimerCallbackForSameHandle(assignmentOwner, usage, allUsages, context)) return true;
+    if (!isEmptyHandleReset || !assignmentOwner || !isFunctionLike(assignmentOwner)) return false;
+    if (
+      isTimerCallbackForSameHandle(assignmentOwner, usage, allUsages, context) ||
+      (usage.registrationVerbName === "requestAnimationFrame" &&
+        getFunctionIdentityKeys(assignmentOwner, context).has(
+          getUsageCallbackKey(usage, context) ?? "",
+        ) &&
+        canNodeReachLaterNodeWithinFunction(assignment, usage.node, assignmentOwner, context))
+    )
+      return true;
     const matchingReleaseCalls: EsTreeNode[] = [];
     walkAst(assignmentOwner.body, (child: EsTreeNode) => {
       if (child !== assignmentOwner.body && isFunctionLike(child)) return false;
@@ -5244,7 +5254,11 @@ const isSelfReschedulingOneShotTimer = (
   allUsages: ReadonlyArray<SubscribeLikeUsage>,
   context: RuleContext,
 ): boolean => {
-  if (usage.registrationVerbName !== "setTimeout") return false;
+  if (
+    usage.registrationVerbName !== "setTimeout" &&
+    usage.registrationVerbName !== "requestAnimationFrame"
+  )
+    return false;
   const functionIdentityKeys = getFunctionIdentityKeys(usageFunction, context);
   if (!functionIdentityKeys.has(getUsageCallbackKey(usage, context) ?? "")) return false;
   const selfSchedulingUsages = allUsages.filter(
@@ -6387,10 +6401,11 @@ const oneShotTimerHasUnmountGuard = (usage: SubscribeLikeUsage, context: RuleCon
   return hasUnmountInvalidation;
 };
 
-const hasReturnedObserverDisconnectAfterSynchronousIteration = (
+const hasReturnedObserverDisconnect = (
   callback: EsTreeNode,
   usage: SubscribeLikeUsage,
   context: RuleContext,
+  allUsages: ReadonlyArray<SubscribeLikeUsage>,
 ): boolean => {
   const usageFunction = findEnclosingFunction(usage.node);
   if (
@@ -6398,7 +6413,6 @@ const hasReturnedObserverDisconnectAfterSynchronousIteration = (
     usage.registrationVerbName !== "observe" ||
     usage.receiverKey === null ||
     !usageFunction ||
-    !isSynchronousIteratorCallback(usageFunction) ||
     !isFunctionLike(callback) ||
     !isNodeOfType(callback.body, "BlockStatement")
   ) {
@@ -6433,7 +6447,97 @@ const hasReturnedObserverDisconnectAfterSynchronousIteration = (
       matchingCleanupReturns.push(child);
     }
   });
-  return doMatchingNodesCoverEveryPathAfterUsage(usage.node, matchingCleanupReturns, context);
+  if (isSynchronousIteratorCallback(usageFunction)) {
+    return doMatchingNodesCoverEveryPathAfterUsage(usage.node, matchingCleanupReturns, context);
+  }
+  const receiver =
+    isNodeOfType(usage.node, "CallExpression") &&
+    isNodeOfType(usage.node.callee, "MemberExpression")
+      ? stripParenExpression(usage.node.callee.object)
+      : null;
+  const receiverSymbol = isNodeOfType(receiver, "Identifier")
+    ? context.scopes.symbolFor(receiver)
+    : null;
+  if (!receiverSymbol || findEnclosingFunction(receiverSymbol.declarationNode) !== callback) {
+    return false;
+  }
+  if (usageFunction === callback) {
+    return (
+      receiverSymbol.kind === "const" &&
+      Boolean(
+        receiverSymbol.initializer &&
+        isGlobalObserverConstruction(stripParenExpression(receiverSymbol.initializer), context),
+      ) &&
+      doNodesCoverEveryPathFromFunctionEntry(callback, matchingCleanupReturns, context)
+    );
+  }
+  if (
+    !isFunctionLike(usageFunction) ||
+    usageFunction.async ||
+    usageFunction.generator ||
+    !isNullishObserverInitializer(receiverSymbol.initializer, context)
+  )
+    return false;
+  const assignments = receiverSymbol.references.filter((reference) => reference.flag !== "read");
+  if (assignments.length !== 1) return false;
+  const assignment = findTransparentExpressionRoot(assignments[0].identifier).parent;
+  if (
+    !isNodeOfType(assignment, "AssignmentExpression") ||
+    assignment.operator !== "=" ||
+    findEnclosingFunction(assignment) !== usageFunction ||
+    !isGlobalObserverConstruction(stripParenExpression(assignment.right), context) ||
+    assignment.parent?.parent !== usageFunction.body
+  )
+    return false;
+  const functionIdentifier = getFunctionBindingIdentifier(usageFunction);
+  const functionSymbol = functionIdentifier ? context.scopes.symbolFor(functionIdentifier) : null;
+  if (!functionSymbol || functionSymbol.references.length !== 2) return false;
+  const invocationCalls = functionSymbol.references.flatMap((reference) => {
+    const invocation = findDirectCallForReference(reference.identifier);
+    return invocation && findEnclosingFunction(invocation) === callback ? [invocation] : [];
+  });
+  if (
+    invocationCalls.length !== 1 ||
+    invocationCalls[0].parent?.parent !== callback.body ||
+    !doMatchingNodesCoverEveryPathAfterUsage(invocationCalls[0], matchingCleanupReturns, context)
+  ) {
+    return false;
+  }
+  const retryReference = functionSymbol.references.find(
+    (reference) => !findDirectCallForReference(reference.identifier),
+  );
+  const retryCall =
+    retryReference && findTransparentExpressionRoot(retryReference.identifier).parent;
+  if (
+    !isNodeOfType(retryCall, "CallExpression") ||
+    !isNodeOfType(retryCall.callee, "Identifier") ||
+    retryCall.callee.name !== "requestAnimationFrame" ||
+    !context.scopes.isGlobalReference(retryCall.callee) ||
+    retryCall.arguments[0] !== retryReference?.identifier ||
+    findEnclosingFunction(retryCall) !== usageFunction
+  )
+    return false;
+  const retryUsage: SubscribeLikeUsage = {
+    kind: "timer",
+    node: retryCall,
+    resourceName: "requestAnimationFrame",
+    registrationVerbName: "requestAnimationFrame",
+    handleKey: findAssignedResourceKey(retryCall, context),
+    receiverKey: null,
+    eventKey: null,
+    handlerKey: null,
+  };
+  return (
+    !canNodeReachLaterNodeWithinFunction(retryCall, assignment, usageFunction, context) &&
+    !canNodeReachLaterNodeWithinFunction(assignment, retryCall, usageFunction, context) &&
+    hasEffectOwnedNestedTimerCleanup(
+      callback,
+      retryUsage,
+      [...allUsages, retryUsage],
+      matchingCleanupReturns,
+      context,
+    )
+  );
 };
 
 const hasEffectLocalStoredDisposerCleanup = (
@@ -6465,7 +6569,7 @@ const effectHasCleanupForUsage = (
   if (
     cleanupRegistryReleasesUsage(callback, usage, context) ||
     symmetricForEachListenerCleanupReleasesUsage(callback, usage, context) ||
-    hasReturnedObserverDisconnectAfterSynchronousIteration(callback, usage, context) ||
+    hasReturnedObserverDisconnect(callback, usage, context, allUsages) ||
     hasEffectLocalStoredDisposerCleanup(callback, usage, context) ||
     oneShotTimerHasUnmountGuard(usage, context) ||
     hasGuaranteedRefOwnedUnmountCleanup(callback, usage, context)
@@ -6493,15 +6597,16 @@ const effectHasCleanupForUsage = (
       ? context.scopes.symbolFor(usageAssignment.left)
       : null;
   const requiresDirectReleasePathCoverage =
-    usage.kind === "timer" &&
-    ((findEnclosingFunction(usage.node) === callback &&
-      isNodeOfType(usageAssignment, "VariableDeclarator")) ||
-      Boolean(
-        assignedHandleSymbol &&
-        (assignedHandleSymbol.kind === "let" || assignedHandleSymbol.kind === "var") &&
-        isNodeOfType(assignedHandleSymbol.declarationNode, "VariableDeclarator") &&
-        findEnclosingFunction(assignedHandleSymbol.declarationNode) === callback,
-      ));
+    (usage.kind === "subscribe" && usage.registrationVerbName === "observe") ||
+    (usage.kind === "timer" &&
+      ((findEnclosingFunction(usage.node) === callback &&
+        isNodeOfType(usageAssignment, "VariableDeclarator")) ||
+        Boolean(
+          assignedHandleSymbol &&
+          (assignedHandleSymbol.kind === "let" || assignedHandleSymbol.kind === "var") &&
+          isNodeOfType(assignedHandleSymbol.declarationNode, "VariableDeclarator") &&
+          findEnclosingFunction(assignedHandleSymbol.declarationNode) === callback,
+        )));
   const matchingCleanupReturns: EsTreeNode[] = [];
   walkInsideStatementBlocks(callback.body, (child: EsTreeNode) => {
     if (!isNodeOfType(child, "ReturnStatement")) return;
@@ -7639,7 +7744,9 @@ const doesReleaseCallMatchUsage = (
   if (usage.kind === "timer") {
     if (
       !isNodeOfType(callee, "Identifier") ||
-      !TIMER_CLEANUP_CALLEE_NAMES.has(callee.name) ||
+      !(usage.registrationVerbName === "requestAnimationFrame"
+        ? callee.name === "cancelAnimationFrame"
+        : TIMER_CLEANUP_CALLEE_NAMES.has(callee.name)) ||
       !context.scopes.isGlobalReference(callee)
     ) {
       return false;

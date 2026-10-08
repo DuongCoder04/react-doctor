@@ -5,6 +5,8 @@ import {
   isDefaultImportFromModule,
   isNamespaceImportFromModule,
 } from "./find-import-source-for-name.js";
+import { functionHasReactElementReturnType } from "./function-has-react-element-return-type.js";
+import { resolveExactLocalFunction } from "./resolve-exact-local-function.js";
 import { functionReturnsMatchingExpression } from "./function-returns-matching-expression.js";
 import { getStaticPropertyName } from "./get-static-property-name.js";
 import { hasStableCallTarget } from "./has-stable-call-target.js";
@@ -128,17 +130,36 @@ export const isRenderPreservingCallArgumentFunction = (
     return false;
   }
   const parent = node.parent;
-  if (!isNodeOfType(parent, "CallExpression")) return false;
-  if (
-    isReactApiCall(parent, "useMemo", scopes, { resolveNamedAliases: true }) &&
-    hasStableCallTarget(parent, scopes)
-  ) {
-    return parent.arguments[0] === node;
+
+  if (isNodeOfType(parent, "CallExpression")) {
+    if (
+      isReactApiCall(parent, "useMemo", scopes, { resolveNamedAliases: true }) &&
+      hasStableCallTarget(parent, scopes)
+    ) {
+      return parent.arguments[0] === node;
+    }
+    return (
+      parent.arguments.some((argumentNode) => argumentNode === node) &&
+      isProvenArrayMapCall(parent, scopes)
+    );
   }
-  return (
-    parent.arguments.some((argumentNode) => argumentNode === node) &&
-    isProvenArrayMapCall(parent, scopes)
-  );
+
+  if (isNodeOfType(parent, "Property") && parent.kind === "init" && parent.value === node) {
+    const handlers = parent.parent;
+    if (!isNodeOfType(handlers, "ObjectExpression")) return false;
+    const dispatcherCall = handlers.parent;
+    if (
+      !isNodeOfType(dispatcherCall, "CallExpression") ||
+      !dispatcherCall.arguments.some((argument) => argument === handlers) ||
+      !hasStableCallTarget(dispatcherCall, scopes)
+    ) {
+      return false;
+    }
+    const dispatcher = resolveExactLocalFunction(dispatcherCall.callee, scopes);
+    return Boolean(dispatcher && functionHasReactElementReturnType(dispatcher, true));
+  }
+
+  return false;
 };
 
 const isNestedRenderEvidenceBoundary = (node: EsTreeNode, scopes: ScopeAnalysis): boolean =>
