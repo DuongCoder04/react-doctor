@@ -1,3 +1,4 @@
+import { isPrimitiveAccumulator } from "../../utils/is-primitive-accumulator.js";
 import { isPositionOnlyMap } from "../../utils/is-position-only-map.js";
 import { hasOnlyJsxKeyIndexReads } from "../../utils/has-only-jsx-key-index-reads.js";
 import { getStaticObjectPropertyValue } from "../../utils/get-static-object-property-value.js";
@@ -1685,6 +1686,7 @@ const DERIVED_NAME_SCAN_BUDGET = 200;
 const collectDerivedRowContentNames = (
   bindingFunction: EsTreeNode | null,
   itemNames: ReadonlySet<string>,
+  context: RuleContext,
 ): Set<string> => {
   const names = new Set<string>();
   if (!bindingFunction || itemNames.size === 0) return names;
@@ -1693,6 +1695,9 @@ const collectDerivedRowContentNames = (
     if (budget <= 0) return false;
     budget -= 1;
     if (isFunctionLike(child) && child !== bindingFunction) return false;
+    if (isNodeOfType(child, "Identifier") && isPrimitiveAccumulator(child, context.scopes)) {
+      names.add(child.name);
+    }
     if (
       isNodeOfType(child, "VariableDeclarator") &&
       isNodeOfType(child.id, "Identifier") &&
@@ -1878,6 +1883,7 @@ export const noArrayIndexAsKey = defineRule({
         const derivedNames = collectDerivedRowContentNames(
           indexUse.binding.bindingFunction,
           itemNames,
+          context,
         );
         const iteratorCallee = indexUse.binding.iteratorCall?.callee;
         const hasDynamicReactChildren = Boolean(
