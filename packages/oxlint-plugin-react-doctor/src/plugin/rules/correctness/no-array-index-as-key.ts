@@ -1,3 +1,4 @@
+import { isPositionOnlyMap } from "../../utils/is-position-only-map.js";
 import { hasOnlyJsxKeyIndexReads } from "../../utils/has-only-jsx-key-index-reads.js";
 import { getStaticObjectPropertyValue } from "../../utils/get-static-object-property-value.js";
 import { isReactApiCall } from "../../utils/is-react-api-call.js";
@@ -1865,6 +1866,11 @@ export const noArrayIndexAsKey = defineRule({
 
         const indexUse = getReportableIndexUse(node.value.expression, node);
         if (!indexUse) return;
+        if (
+          indexUse.binding.iteratorCall &&
+          isPositionOnlyMap(indexUse.binding.iteratorCall, context.scopes)
+        )
+          return;
         const indexName = indexUse.identifier.name;
         const keyTemplate = resolveKeyTemplateLiteral(node.value.expression);
 
