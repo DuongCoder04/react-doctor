@@ -1398,6 +1398,27 @@ describe("react-builtins/rules-of-hooks — local member use bindings", () => {
   });
 });
 
+describe("CommonJS component registration APIs", () => {
+  it.each([
+    `var Registry = require('react_ujs'); Registry.useContext(context);`,
+    `const Registry = require('react_ujs'); Registry.useContexts(contexts);`,
+    `import Registry from 'react_ujs'; Registry.useContext(context);`,
+    `import * as Registry from 'react_ujs'; Registry.useContexts(contexts);`,
+  ])("accepts framework registration: %s", (code) => {
+    expect(runRule(rulesOfHooks, code).diagnostics).toEqual([]);
+  });
+  it.each([
+    `const React = require('react'); React.useContext(context);`,
+    `var Registry = require('react_ujs'); Registry = React; Registry.useContext(context);`,
+    `const Registry = require('react_ujs'); Registry.useContext = useContext; Registry.useContext(context);`,
+    `const require = load; const Registry = require('react_ujs'); Registry.useContext(context);`,
+    `const Registry = require('./hooks'); Registry.useContext(context);`,
+    `const Registry = require('react_ujs').Hooks; Registry.useContext(context);`,
+    `const Registry = require('react_ujs'); Registry.useState(0);`,
+  ])("retains hook enforcement without proven registration: %s", (code) => {
+    expect(runRule(rulesOfHooks, code).diagnostics).toHaveLength(1);
+  });
+});
 describe("non-React runtime hook names", () => {
   it.each([
     `import {createSignal} from 'solid-js'; import {useData} from './store'; export const useSelection = (enabled) => { if (enabled) return useData(); };`,
